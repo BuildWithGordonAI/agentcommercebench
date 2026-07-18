@@ -1,14 +1,13 @@
 # AgentCommerceBench: A Three-Layer Benchmark for Fraud Detection in Autonomous AI Payment Systems
 
-**Debjyoti Paul**  
-Gordon AI · debjyoti93.paul@gmail.com  
+**Gordon AI**  
 July 2026
 
 ---
 
 ## Abstract
 
-Autonomous AI agents are increasingly authorized to discover and pay for API services using on-chain micropayment rails, creating a new attack surface that existing safety benchmarks do not cover. We introduce **AgentCommerceBench**, the first benchmark for fraud and adversarial injection detection in AI agent commerce systems. Our benchmark spans three distinct injection vectors: *payload injection* targeting the content of tool responses, *behavioral injection* exploiting anomalous action sequences, and *commerce-rail injection* attacking payment execution. We define 15 attack scenarios across these layers, including **A7 (MCP Tool Response Poisoning)**, a novel attack class we introduce in which adversarial text within service-discovery responses redirects payments to attacker-controlled wallets. We evaluate four open-source baseline detectors and introduce a novel **Session Graph RandomForest (SGRF)** model that achieves F1=0.64 at 0% FPR by learning 20-dimensional structural features of normal agent transaction graphs—outperforming all OSS baselines without access to attack labels during inference. A blind red-team evaluation confirms behavioral detection generalizes to novel attacks unseen during training (BT2: 6/6 = 100% caught), while text-pattern detectors do not (BT1: 0/9 = 0% caught). The benchmark dataset is calibrated from 503 real production transactions, achieving KL divergence of **0.0035** against production service-category distributions.
+Autonomous AI agents are increasingly authorized to discover and pay for API services using on-chain micropayment rails, creating a new attack surface that existing safety benchmarks do not cover. We introduce **AgentCommerceBench**, the first benchmark for fraud and adversarial injection detection in AI agent commerce systems. Our benchmark spans three distinct injection vectors: *payload injection* targeting the content of tool responses, *behavioral injection* exploiting anomalous action sequences, and *commerce-rail injection* attacking payment execution. We define 15 attack scenarios across these layers, including **A7 (MCP Tool Response Poisoning)**, a novel attack class we introduce in which adversarial text within service-discovery responses redirects payments to attacker-controlled wallets. We evaluate four open-source baseline detectors and introduce a novel **Session Graph RandomForest (SGRF)** model that achieves F1=0.64 at 0% FPR by learning 20-dimensional structural features of normal agent transaction graphs—outperforming all OSS baselines without access to attack labels during inference. A blind red-team evaluation on a small pilot corpus (BT1: n=9 text payloads, BT2: n=6 behavioral sequences) finds that behavioral detection generalizes to novel attacks sharing known structural mechanisms (BT2: 6/6, 95% CI [61%–100%]), while text-pattern detectors do not generalize to novel phrasing (BT1: 0/9). The benchmark dataset is calibrated from 503 real production transactions, achieving KL divergence of **0.0035** against production service-category distributions.
 
 ---
 
@@ -32,7 +31,7 @@ The gap is not merely taxonomic. A system defending agent payments must simultan
 
 3. **Session Graph RF (SGRF)**: a novel RandomForest on 20-dimensional transaction graph features achieving F1=0.64, FPR=0%, trained on clean sessions only without knowledge of specific attack patterns
 
-4. **Blind red-team methodology**: externally-generated novel attacks proving behavioral detection generalizes (BT2: 100%) while text-pattern matching does not (BT1: 0%)
+4. **Blind red-team methodology**: externally-generated novel attacks showing behavioral detection generalizes when structural mechanisms overlap with known classes (BT2: 6/6 on a pilot corpus, 95% CI [61%–100%]) while text-pattern matching does not generalize to novel phrasing (BT1: 0/9)
 
 ---
 
@@ -395,21 +394,29 @@ We address this with a **blind red team evaluation**: attack specifications are 
 
 ### 8.2 Results
 
-| Category | Sessions | Caught | Catch rate |
-|----------|---------|--------|------------|
-| BT1 — novel text payloads | 9 | 0 | **0%** |
-| BT2 — novel behavioral sequences | 6 | 6 | **100%** |
+| Category | Sessions | Caught | Catch rate | 95% CI (Wilson) |
+|----------|---------|--------|------------|-----------------|
+| BT1 — novel text payloads | 9 | 0 | 0% | [0%, 34%] |
+| BT2 — novel behavioral sequences | 6 | 6 | 100% | [61%, 100%] |
 
-### 8.3 Interpretation
+We report Wilson score confidence intervals to reflect the small sample sizes. The BT2 point estimate of 100% (6/6) has a lower-bound of 61%, meaning the result is directional — behavioral detection generalizes to novel attacks — but is not a precision claim about arbitrary future attacks. Larger-scale red teaming is warranted before deploying this detector in high-stakes environments.
 
-**BT1 (0%) is the correct and expected finding.** Novel social engineering phrasing — "preferred vendor has updated their settlement address" — contains no string from the keyword filter's pattern set. This confirms text-pattern detectors catch *known* injection signatures, not *semantically adversarial content*. The phrasing sounds like a legitimate business communication; no keyword rule distinguishes it from authorized vendor updates.
+### 8.3 Mechanistic Explanation of BT2 Detections
 
-This result is not a system failure — it is an honest characterization of what keyword-pattern detection can and cannot do. It directly motivates the fine-tuned semantic classifier (Section 9), which can reason about vendor trust semantics rather than surface patterns.
+Each BT2 detection is mechanistically explained by the SGRF feature set, not attributable to lucky overlap with training patterns:
 
-**BT2 (100%) validates structural generalization.** The SGRF catches trust-warmup and systematic enumeration despite these specific patterns being absent from the training scenario set. The model detects the *distributional signature* of anomalous behavior: unusual FIND/AUTH ratios, amount variance spikes, timing bursts. These structural signals are present in novel attacks that share the same underlying mechanism as known attacks, even when the surface-level content is entirely different.
+**Trust warmup** (3 small payments → 1 large redirect): This attack activates `amount_ratchet` (Gini importance 15.8%, the highest-weighted feature) and `amount_std` (15.6%). The ratio of the final payment to the session mean is ~100×, placing this session in a high-variance region the model learned to flag from B2 (within-session escalation) training examples. The *mechanism* — sudden amount spike — is the same even though the *framing* (establishing trust through small payments) differs from B2.
+
+**Systematic enumeration** (5 FIND_SERVICE, 0 AUTHORIZE to attacker): This activates `n_events` (7.2% importance) and the FIND/AUTH ratio (implicit in topology features). B3 (reconnaissance) covers structurally identical behavior; the model learned that high-FIND, low-AUTHORIZE sessions are anomalous regardless of which specific services are queried.
+
+The key claim is not "SGRF catches all novel behavioral attacks." It is more specific: **SGRF generalizes when the novel attack shares the same underlying structural mechanism as a training scenario**, even when the surface phrasing, service names, and attack framing are entirely different. Attacks that require new structural mechanisms — such as B2's cross-session escalation, or a novel attack type not representable in the 20-dimensional feature space — will not be caught.
+
+### 8.4 Interpretation
+
+**BT1 (0%) is the correct and expected finding.** Novel social engineering phrasing — "preferred vendor has updated their settlement address" — contains no string from the keyword filter's pattern set. This is not a model failure; it is the fundamental limitation of static pattern matching against adaptive adversaries. The same vulnerability applies to any OWASP LLM01-style regex filter, and this result directly motivates the fine-tuned semantic classifier (Section 9), which reasons about vendor trust semantics rather than surface token patterns.
 
 **The asymmetry between BT1 and BT2 is the core finding of the red team evaluation:**
-> Text-pattern detection requires known patterns; behavioral detection transfers to novel attacks through learned representations of normal agent behavior.
+> Text-pattern detection requires known patterns and fails against novel phrasing. Behavioral detection generalizes when novel attacks share structural mechanisms with known attack classes.
 
 ---
 
@@ -554,7 +561,7 @@ Our analysis establishes three findings with implications for deployed agent pay
 
 1. **No existing OSS detector covers all three attack layers simultaneously at zero false positive rate.** The best existing approach — combining keyword matching with anomaly detection — misses behavioral attacks entirely at deployable FPR thresholds.
 
-2. **Behavioral detection generalizes to novel attacks; text-pattern detection does not.** Our blind red team evaluation demonstrates 100% catch rate on novel behavioral sequences (BT2) and 0% on novel text payloads (BT1), validating that structural session models transfer across attack variants while pattern-matching approaches do not.
+2. **Behavioral detection generalizes when structural mechanisms overlap; text-pattern detection does not generalize to novel phrasing.** A pilot blind red team (BT2: n=6, BT1: n=9) finds 6/6 detection of novel behavioral attacks and 0/9 detection of novel text payload attacks. The BT2 detections are mechanistically explained — both novel attacks activate the highest-weighted SGRF features (amount variance, FIND/AUTH ratio) in the same way as known training scenarios. Generalization is conditional on structural mechanism overlap, not a universal property.
 
 3. **Service discovery is an underexplored attack surface.** A7 (MCP Tool Response Poisoning) demonstrates that adversarial content in `FIND_SERVICE` responses can redirect agent payments as effectively as payload injection at authorization time, yet no existing benchmark or detector targets this stage.
 

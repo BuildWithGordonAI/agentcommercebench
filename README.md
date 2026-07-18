@@ -150,10 +150,10 @@ This is the first application of session graph feature extraction to MCP commerc
 
 | Category | Attack type | Catch rate |
 |----------|-------------|------------|
-| BT1 | Novel social engineering text payloads | **0/9 = 0%** |
-| BT2 | Novel behavioral sequences | **6/6 = 100%** |
+| BT1 | Novel social engineering text payloads | 0/9 = 0% [CI: 0%–34%] |
+| BT2 | Novel behavioral sequences | 6/6 = 100% [CI: 61%–100%] |
 
-**Interpretation**: The keyword filter doesn't generalize to novel phrasing — it catches known injection strings only. The behavioral sequence model catches 100% of novel behavioral attacks because it learns what *normal* behavior looks like, not what attacks look like. BT1's 0% catch rate directly motivates the Bedrock fine-tuned semantic model.
+**Interpretation**: Sample sizes are small (pilot corpus); results are directional, not precision estimates. BT1 (0%) confirms keyword-pattern detectors don't generalize to novel phrasing — expected and mechanistically sound. BT2 (6/6) shows behavioral detection generalizing to novel attacks *when the underlying structural mechanism is shared with training scenarios*: both BT2 attacks activate amount-variance and FIND/AUTH-ratio features that rank highest in SGRF's Gini importances. BT1's failure directly motivates the fine-tuned semantic model.
 
 ---
 
@@ -162,7 +162,7 @@ This is the first application of session graph feature extraction to MCP commerc
 ```bibtex
 @software{agentcommercebench2026,
   title        = {AgentCommerceBench: A Benchmark for Fraud Detection in AI Agent Payment Systems},
-  author       = {Paul, Debjyoti},
+  author       = {{Gordon AI}},
   organization = {Gordon AI},
   year         = {2026},
   url          = {https://github.com/BuildWithGordonAI/agentcommercebench},
