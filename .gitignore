@@ -58,6 +58,11 @@ benchmark/models/artifacts/
 benchmark/models/finetune_job.json
 benchmark/models/finetune_data_v2.jsonl
 benchmark/models/finetune_data_val_v2.jsonl
+benchmark/models/finetune_data_v3.jsonl
+benchmark/models/finetune_data_v3_val.jsonl
+benchmark/models/finetune_data_hf.jsonl
+benchmark/models/finetune_data_hf_val.jsonl
+benchmark/models/sagemaker_job.json
 
 # HuggingFace release staging
 hf_release/

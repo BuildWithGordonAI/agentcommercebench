@@ -102,27 +102,36 @@ def session_to_transcript(session: Session) -> str:
     return "\n".join(lines)
 
 
-def session_to_finetune_record(session: Session) -> dict:
-    """Convert a session to a Nova fine-tuning JSONL record.
+def _assistant_text(session: Session) -> str:
+    if session.is_clean:
+        return "safe"
+    cats = SCENARIO_CATEGORIES.get(session.scenario_id or "", [])
+    return f"unsafe\n{','.join(cats)}" if cats else "unsafe"
 
-    Uses Amazon Nova Converse API format — content must be list[{"text": str}],
-    and system prompt is a top-level field, not part of messages.
-    """
+
+def session_to_finetune_record(session: Session) -> dict:
+    """Amazon Nova Converse fine-tuning format — requires schemaVersion field."""
     transcript = session_to_transcript(session)
     user_text = transcript + "\n\nClassify this session:"
-
-    if session.is_clean:
-        assistant_text = "safe"
-    else:
-        cats = SCENARIO_CATEGORIES.get(session.scenario_id or "", [])
-        assistant_text = f"unsafe\n{','.join(cats)}" if cats else "unsafe"
-
     return {
+        "schemaVersion": "bedrock-conversation-v1",
         "system": [{"text": _SYSTEM_PROMPT}],
         "messages": [
             {"role": "user",      "content": [{"text": user_text}]},
-            {"role": "assistant", "content": [{"text": assistant_text}]},
+            {"role": "assistant", "content": [{"text": _assistant_text(session)}]},
         ],
+    }
+
+
+def session_to_hf_chat_record(session: Session) -> dict:
+    """HuggingFace chat-template format for open-weight LLM fine-tuning (Qwen2.5, Llama, etc.)."""
+    transcript = session_to_transcript(session)
+    return {
+        "messages": [
+            {"role": "system",    "content": _SYSTEM_PROMPT},
+            {"role": "user",      "content": transcript + "\n\nClassify this session:"},
+            {"role": "assistant", "content": _assistant_text(session)},
+        ]
     }
 
 
@@ -132,12 +141,15 @@ def generate(
     seed: int = 42,
     output_path: str = "benchmark/models/finetune_data.jsonl",
     split_ratio: float = 0.1,
+    fmt: str = "nova",          # "nova" | "hf"
 ) -> tuple[str, str]:
     """
     Generate fine-tuning + validation JSONL files.
+    fmt="nova"  → Amazon Nova Converse format (schemaVersion required)
+    fmt="hf"    → HuggingFace messages format (Qwen2.5 / Llama chat template)
     Returns (train_path, val_path).
     """
-    print(f"Generating dataset: n_clean={n_clean} n_per_scenario={n_per_scenario}")
+    print(f"Generating dataset: n_clean={n_clean} n_per_scenario={n_per_scenario} fmt={fmt}")
     sessions = build_dataset(n_clean=n_clean, n_per_scenario=n_per_scenario, seed=seed)
 
     rng = random.Random(seed)
@@ -149,10 +161,12 @@ def generate(
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
     val_path = output_path.replace(".jsonl", "_val.jsonl")
 
+    record_fn = session_to_hf_chat_record if fmt == "hf" else session_to_finetune_record
+
     def write_jsonl(path: str, slist: list[Session]) -> int:
         with open(path, "w") as f:
             for s in slist:
-                f.write(json.dumps(session_to_finetune_record(s)) + "\n")
+                f.write(json.dumps(record_fn(s)) + "\n")
         return len(slist)
 
     n_train = write_jsonl(output_path, train_sessions)
@@ -164,7 +178,6 @@ def generate(
     attack_count  = n_train - clean_count
     print(f"  Class balance: {clean_count} clean / {attack_count} attacked ({100*clean_count/n_train:.0f}%/{100*attack_count/n_train:.0f}%)")
 
-    # Scenario breakdown
     from collections import Counter
     scen_counts = Counter(s.scenario_id for s in train_sessions if not s.is_clean)
     for scen, count in sorted(scen_counts.items()):
@@ -180,12 +193,16 @@ if __name__ == "__main__":
     parser.add_argument("--n-per",      type=int, default=50)
     parser.add_argument("--seed",       type=int, default=42)
     parser.add_argument("--output-dir", type=str, default="benchmark/models/")
+    parser.add_argument("--format",     type=str, default="nova", choices=["nova", "hf"],
+                        help="nova: Amazon Bedrock format; hf: HuggingFace chat format")
     args = parser.parse_args()
 
-    out = os.path.join(args.output_dir, "finetune_data.jsonl")
+    suffix = "_hf" if args.format == "hf" else "_v3"
+    out = os.path.join(args.output_dir, f"finetune_data{suffix}.jsonl")
     generate(
         n_clean=args.n_clean,
         n_per_scenario=args.n_per,
         seed=args.seed,
         output_path=out,
+        fmt=args.format,
     )
