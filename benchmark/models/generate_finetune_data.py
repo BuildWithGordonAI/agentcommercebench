@@ -103,24 +103,26 @@ def session_to_transcript(session: Session) -> str:
 
 
 def session_to_finetune_record(session: Session) -> dict:
-    """Convert a session to a Nova fine-tuning JSONL record."""
+    """Convert a session to a Nova fine-tuning JSONL record.
+
+    Uses Amazon Nova Converse API format — content must be list[{"text": str}],
+    and system prompt is a top-level field, not part of messages.
+    """
     transcript = session_to_transcript(session)
-    user_content = _SYSTEM_PROMPT + "\n\n" + transcript + "\n\nClassify this session:"
+    user_text = transcript + "\n\nClassify this session:"
 
     if session.is_clean:
-        assistant_content = "safe"
+        assistant_text = "safe"
     else:
         cats = SCENARIO_CATEGORIES.get(session.scenario_id or "", [])
-        if cats:
-            assistant_content = f"unsafe\n{','.join(cats)}"
-        else:
-            assistant_content = "unsafe"
+        assistant_text = f"unsafe\n{','.join(cats)}" if cats else "unsafe"
 
     return {
+        "system": [{"text": _SYSTEM_PROMPT}],
         "messages": [
-            {"role": "user", "content": user_content},
-            {"role": "assistant", "content": assistant_content},
-        ]
+            {"role": "user",      "content": [{"text": user_text}]},
+            {"role": "assistant", "content": [{"text": assistant_text}]},
+        ],
     }
 
 

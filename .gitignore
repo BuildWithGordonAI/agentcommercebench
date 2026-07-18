@@ -13,10 +13,22 @@ VISION.md
 gordon_fraud_detection_spec.md
 fraud_security_layer.md
 
-# Superceded by fraud/ package
+# Proprietary production system — not for OSS release
+fraud/
 src/
+harness/agent/
+harness/detect/
+harness/trace/
+benchmark/detectors/
+tests/
+game.py
+dashboard.py
+load_env.py
+scripts/
+pyproject.toml
+.env.example
 
-# Old duplicate README
+# Duplicate / internal
 REPO_README.md
 CODEBASE.md
 
@@ -40,8 +52,18 @@ benchmark/baselines/.llm_safety_cache.json
 benchmark/models/finetune_data.jsonl
 benchmark/models/finetune_data_val.jsonl
 
-# Benchmark results (generated)
+# Benchmark results and generated artifacts (not source)
 benchmark/results/
+benchmark/models/artifacts/
+benchmark/models/finetune_job.json
+benchmark/models/finetune_data_v2.jsonl
+benchmark/models/finetune_data_val_v2.jsonl
+
+# HuggingFace release staging
+hf_release/
+
+# Internal harness run data
+harness/data/
 
 # IDE
 .idea/

@@ -28,7 +28,7 @@ dotenv.load_dotenv(os.path.join(os.path.dirname(__file__), "../../.env"), overri
 
 S3_BUCKET       = "v1-gordonai"
 S3_PREFIX       = "agentcommercebench/finetune"
-BASE_MODEL_ID   = "amazon.nova-micro-v1:0"  # cheapest fine-tunable Nova model
+BASE_MODEL_ID   = "amazon.nova-micro-v1:0:128k"  # cheapest fine-tunable Nova model (128k context variant)
 OUTPUT_PREFIX   = "agentcommercebench-guard"
 
 _ROLE_ARN = os.environ.get(
@@ -101,7 +101,7 @@ def submit_job(train_uri: str, val_uri: str, epochs: int = 3) -> str:
             "epochCount":         str(epochs),
             "batchSize":          "4",
             "learningRate":       "0.00001",
-            "learningRateWarmupSteps": "50",
+            "learningRateWarmupSteps": "10",
         },
     )
 

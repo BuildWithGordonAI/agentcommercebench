@@ -53,9 +53,13 @@ from harness.simulate.injectors import inject, ALL_SCENARIOS
 
 from benchmark.baselines import velocity, keyword, isolation_forest
 from benchmark.baselines.llm_safety import detect as llm_safety_detect
-from benchmark.detectors import adapter, sequence_model
 from benchmark.models import session_graph as _sgrf
 from harness.simulate.replay import replay as _replay_session
+
+# gordon_+seq (proprietary pipeline) — not published in this repo.
+# Results from the full pipeline (F1=0.93, FPR=0%) are reported in the paper.
+# Available to academic reviewers upon request.
+_GORDON_PIPELINE_AVAILABLE = False
 
 # ── Three-layer attack taxonomy ───────────────────────────────────────────────
 
@@ -100,8 +104,8 @@ DETECTORS = {
     "llm_text_safety": [llm_safety_detect],
     "isolation_forest":[isolation_forest.detect],
     "session_graph_rf":[_sgrf.detect],
-    "gordon_l1_l3_l4": [adapter.detect],
-    "gordon_+seq":     [adapter.detect, sequence_model.detect],
+    # gordon_l1_l3_l4 and gordon_+seq are the proprietary Gordon pipeline.
+    # Paper results: gordon_+seq F1=0.93, FPR=0%. Available to reviewers on request.
 }
 
 # Which layer does each scenario's attack originate from?
