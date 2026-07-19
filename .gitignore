@@ -81,3 +81,6 @@ harness/data/
 # PDFs and investor docs
 *.pdf
 
+benchmark/models/finetune_data_hf_graph.jsonl
+benchmark/models/finetune_data_hf_graph_val.jsonl
+benchmark/models/sagemaker_job_graph.json
