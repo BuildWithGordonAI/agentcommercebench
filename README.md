@@ -84,19 +84,99 @@ python -m benchmark.distribution_check   # reproduce the distribution comparison
 
 ---
 
+## Live Demo
+
+Run the interactive fraud detection CLI — gordonguard:
+
+```bash
+pip install -r requirements.txt
+python gordonguard.py
+```
+
+**4-beat walkthrough (~3 minutes):**
+
+```
+/agents            # see the three autonomous agents and their policies
+/agents 2          # drill into the research agent
+2                  # select it
+run                # clean session — Exa Search, $0.008 USDC, no flags
+
+/adversarial 2     # load B3 reconnaissance sweep attack
+run                # watch 15 vendor probes build up, BLOCKED at AUTHORIZE
+
+/guard 2           # switch to keyword_filter only
+run                # misses B3 — no injected text to match
+
+/guard 4           # switch to session_graph_rf
+run                # catches it — find_auth_ratio=15.0, PASS→WARN→ALERT
+
+/benchmark         # F1 comparison across all 15 scenarios
+```
+
+Full pitch script: [`DEMO_SCRIPT.md`](DEMO_SCRIPT.md)
+
+---
+
+## How It Works — Code Walkthrough
+
+Three files implement the behavioral detection layer:
+
+**1. `harness/simulate/schema.py` — the data model**
+
+Every MCP call — `gordon_find_service` or `gordon_authorize` — becomes an `Event`:
+
+```python
+@dataclass
+class Event:
+    action_type:      ActionType   # FIND_SERVICE | AUTHORIZE
+    amount_units:     int          # USDC micro-units (1 USDC = 1,000,000)
+    vendor:           str          # wallet address or service_id
+    original_request: dict         # raw MCP payload — L1 reads this
+    is_injected:      bool         # ground truth label for evaluation
+```
+
+The detector sees a list of these events per session. Nothing else.
+
+**2. `benchmark/models/session_graph.py` — the feature extractor**
+
+20 dimensions extracted from the event sequence, not from text:
+
+```python
+# [4]  find_authorize_ratio    — recon signal:  15.0 in B3, ~1.0 clean
+# [5]  n_distinct_services     — catalog sweep: 15 services vs 1 clean
+# [9]  amount_std_usdc         — ratcheting signal (B2)
+# [12] timing_gap_std_s        — burst signal
+# [18] has_override_keyword    — L1 text signal (A7)
+```
+
+**3. `benchmark/models/session_graph.py` — the detector**
+
+```python
+def detect(self, event, history):
+    features = session_to_features(history + [event])   # 20-dim vector
+    proba    = self.clf.predict_proba(features)[1]      # P(fraud)
+    if proba >= 0.70:
+        return Decision.BLOCK, ["behavioral_anomaly"]
+    return Decision.ALLOW, []
+```
+
+RandomForest trained on clean sessions only — it learns what normal looks like, not what attacks look like. F1 = 0.64 at 0% FPR for the behavioral layer alone. Full pipeline (L1 + L2 + L3): F1 = 0.93.
+
+---
+
 ## Getting Started
 
 ```bash
 pip install -r requirements.txt
+
+# Interactive demo
+python gordonguard.py
 
 # Run holistic three-layer benchmark
 python -m benchmark.holistic --real-sessions benchmark/real_sessions/
 
 # Run blind red-team test (LLM-generated novel attacks)
 python -m benchmark.redteam --session benchmark/real_sessions/*.json
-
-# Demo interactive CLI
-python demo.py --persona research --scenario A1
 
 # Fine-tuning data generation
 python -m benchmark.models.generate_finetune_data --n-clean 500 --n-per 50

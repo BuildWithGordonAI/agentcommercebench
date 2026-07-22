@@ -8,6 +8,7 @@ the three-layer attack taxonomy (L1 prompt injection, L2 behavioral, L3 commerce
 Entry point called by SageMaker — reads from SM_CHANNEL_TRAINING, writes to /opt/ml/model/.
 """
 import os, json, logging
+import torch
 from pathlib import Path
 from datasets import Dataset
 from transformers import (
@@ -60,7 +61,7 @@ def main():
     bnb_config = BitsAndBytesConfig(
         load_in_4bit=True,
         bnb_4bit_quant_type="nf4",
-        bnb_4bit_compute_dtype="bfloat16",
+        bnb_4bit_compute_dtype=torch.bfloat16,
         bnb_4bit_use_double_quant=True,
     )
 
