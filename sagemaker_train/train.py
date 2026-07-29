@@ -117,6 +117,7 @@ def main():
         warmup_ratio=WARMUP_RATIO,
         lr_scheduler_type="cosine",
         bf16=True,
+        gradient_checkpointing=True,
         logging_steps=10,
         save_strategy="epoch",
         save_total_limit=1,

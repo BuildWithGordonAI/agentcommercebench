@@ -124,34 +124,42 @@ Data on HuggingFace (gated): [withgordon/agentcommercebench](https://huggingface
 
 ## Live Demo
 
-Run the interactive fraud detection CLI — gordonguard:
+A self-contained single-file demo — no repo dependencies, no AWS credentials, no database.
+
+**Quick start (local):**
 
 ```bash
+cd demo
 pip install -r requirements.txt
-python gordonguard.py
+python demo.py
 ```
 
-**4-beat walkthrough (~3 minutes):**
+**Zero-setup with Docker:**
 
-```
-/agents            # see the three autonomous agents and their policies
-/agents 2          # drill into the research agent
-2                  # select it
-run                # clean session — Exa Search, $0.008 USDC, no flags
-
-/adversarial 2     # load B3 reconnaissance sweep attack
-run                # watch 15 vendor probes build up, BLOCKED at AUTHORIZE
-
-/guard 2           # switch to keyword_filter only
-run                # misses B3 — no injected text to match
-
-/guard 4           # switch to session_graph_rf
-run                # catches it — find_auth_ratio=15.0, PASS→WARN→ALERT
-
-/benchmark         # F1 comparison across all 15 scenarios
+```bash
+docker build -t gordonguard-demo demo/
+docker run -it gordonguard-demo
 ```
 
-Full pitch script: [`DEMO_SCRIPT.md`](DEMO_SCRIPT.md)
+**Options:**
+
+```bash
+python demo.py                     # interactive — pauses between beats for live narration
+python demo.py --fast --no-pause   # unattended / screen-record mode (~8 seconds)
+EXA_API_KEY=your_key python demo.py  # enables live Exa Search on beat 1
+python demo.py --retrain           # force retrain the session-graph model
+```
+
+**What it shows (4 beats):**
+
+| Beat | What happens |
+|------|-------------|
+| 1 — Clean session | Research agent finds Exa Search, pays $0.008 USDC — 2% risk, ALLOW |
+| 2 — B3 attack | 15 vendor probes, risk climbs probe-by-probe, BLOCKED before $0.50 fires |
+| 3 — Why baselines miss it | keyword_filter: 0.00 · velocity: ALLOW · session_graph_rf: **BLOCK** |
+| 4 — Full benchmark | F1 comparison across all 15 scenarios, 3 detection layers |
+
+The model trains on first run (~5 seconds, one-time) and is cached to `~/.cache/gordonguard/`.
 
 ---
 
@@ -204,20 +212,80 @@ RandomForest trained on clean sessions only — it learns what normal looks like
 
 ## Getting Started
 
+### Demo — no setup required
+
+```bash
+cd demo
+pip install -r requirements.txt   # rich numpy scikit-learn joblib requests
+python demo.py
+```
+
+Or with Docker (zero local deps):
+
+```bash
+docker build -t gordonguard-demo demo/
+docker run -it gordonguard-demo
+```
+
+### Full pipeline — AWS setup
+
+The benchmark, training, and eval scripts require AWS credentials and an S3 bucket.
+
+**1. AWS credentials**
+
+```bash
+pip install awscli
+aws configure   # enter Access Key ID, Secret Key, region (us-east-1), output format (json)
+```
+
+Or export directly:
+
+```bash
+export AWS_ACCESS_KEY_ID=your_key
+export AWS_SECRET_ACCESS_KEY=your_secret
+export AWS_DEFAULT_REGION=us-east-1
+```
+
+**2. S3 bucket**
+
+Create a bucket in `us-east-1` and set it in the scripts (`BUCKET` constant in `scripts/`):
+
+```bash
+aws s3 mb s3://your-bucket-name --region us-east-1
+```
+
+**3. SageMaker IAM role**
+
+The launch scripts auto-create a `SageMakerExecutionRole` if none exists. If your account already has one, the script finds it automatically. You need these policies attached:
+
+```
+AmazonSageMakerFullAccess
+AmazonS3FullAccess
+```
+
+**4. HuggingFace token** (for gated model access)
+
+```bash
+export HF_TOKEN=your_hf_token
+```
+
+**5. Run the benchmark**
+
 ```bash
 pip install -r requirements.txt
 
-# Interactive demo
-python gordonguard.py
-
-# Run holistic three-layer benchmark
+# Holistic three-layer benchmark
 python -m benchmark.holistic --real-sessions benchmark/real_sessions/
-
-# Run blind red-team test (LLM-generated novel attacks)
-python -m benchmark.redteam --session benchmark/real_sessions/*.json
 
 # Fine-tuning data generation
 python -m benchmark.models.generate_finetune_data --n-clean 500 --n-per 50
+
+# Launch QLoRA training on SageMaker (ml.g5.xlarge, ~50 min)
+python scripts/launch_sagemaker_train.py --graph-stats
+
+# Run eval job on SageMaker Processing
+python scripts/run_eval.py
+python scripts/run_eval.py --poll <job-name>
 ```
 
 ---
