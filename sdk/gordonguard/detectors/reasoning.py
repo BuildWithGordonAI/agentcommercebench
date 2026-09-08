@@ -82,14 +82,54 @@ _INSTRUCTION = _compile(INSTRUCTION_PATTERNS)
 _EVASION = _compile(EVASION_PATTERNS)
 _CONCEALMENT = _compile(CONCEALMENT_PATTERNS)
 
-# Words that make a stated intent comparable to an action.
+# Words that make a stated intent comparable to an action. Inflected forms are listed
+# explicitly: "Buying one search" is a purchase, and matching only the bare stem would read it
+# as a read-only intent because of the noun.
 _INTENT_VERBS = re.compile(
-    r"\b(search|look\s+up|find|check|read|fetch|browse|compare|"
-    r"buy|purchase|pay|order|book|subscribe|transfer|send)\b",
+    r"\b(search(?:es|ing)?|look(?:s|ed|ing)?\s+up|find(?:s|ing)?|check(?:s|ed|ing)?|"
+    r"read(?:s|ing)?|fetch(?:es|ed|ing)?|brows(?:e|es|ed|ing)|compar(?:e|es|ed|ing)|"
+    r"buy(?:s|ing)?|bought|purchas(?:e|es|ed|ing)|pay(?:s|ing)?|paid|order(?:s|ed|ing)?|"
+    r"book(?:s|ed|ing)?|subscrib(?:e|es|ed|ing)|transfer(?:s|red|ring)?|"
+    r"send(?:s|ing)?|sent|spend(?:s|ing)?|spent|charg(?:e|es|ed|ing))\b",
     re.IGNORECASE,
 )
-_BUY_VERBS = {"buy", "purchase", "pay", "order", "book", "subscribe", "transfer", "send"}
+_BUY_VERBS = {
+    "buy", "buys", "buying", "bought",
+    "purchase", "purchases", "purchased", "purchasing",
+    "pay", "pays", "paying", "paid",
+    "order", "orders", "ordered", "ordering",
+    "book", "books", "booked", "booking",
+    "subscribe", "subscribes", "subscribed", "subscribing",
+    "transfer", "transfers", "transferred", "transferring",
+    "send", "sends", "sending", "sent",
+    "spend", "spends", "spending", "spent",
+    "charge", "charges", "charged", "charging",
+}
+# Language showing the agent knows it is about to spend, even without a purchase verb.
+# Deliberately excludes bare "price"/"cost": researching a price is the read-only intent this
+# check exists to catch, so treating those words as evidence of spend awareness would suppress
+# the true positives.
+_PURCHASE_CONTEXT = re.compile(
+    r"\b(fee|fees|invoice|checkout|wallet|balance|budget|usdc|"
+    r"settle|settlement|charge\s+me|\$\s?\d)", re.IGNORECASE
+)
 _AMOUNT_RE = re.compile(r"\$\s?([\d,]+(?:\.\d{1,2})?)")
+
+# Reasoning that sources its justification from the counterparty rather than the task.
+_DEFERENCE = re.compile(
+    r"("
+    r"(?:the\s+)?(?:service|site|website|merchant|vendor|seller|tool|api|server|page|"
+    r"response|result|message|endpoint|provider)\s+"
+    r"(?:says?|said|states?|requires?|requests?|asks?|instructs?|indicates?|told|wants?|"
+    r"needs?|demands?)"
+    r"|as\s+(?:instructed|requested|directed|required|specified)\s+by"
+    r"|according\s+to\s+the\s+(?:response|result|service|site|merchant|tool|api|page)"
+    r"|(?:i\s+was|we\s+were)\s+(?:told|instructed|asked|directed)"
+    r"|it\s+says\s+(?:i|we)\s+(?:must|need|should|have\s+to)"
+    r"|(?:in\s+order\s+)?to\s+(?:comply|satisfy)\s+with\s+(?:the|their)"
+    r")",
+    re.IGNORECASE,
+)
 
 
 class ReasoningDetector:
@@ -113,6 +153,7 @@ class ReasoningDetector:
         flags: list[str] = []
 
         risk, flags = self._injected(action, text, risk, flags)
+        risk, flags = self._deference(action, text, risk, flags)
         risk, flags = self._evasion(text, risk, flags)
         risk, flags = self._concealment(text, risk, flags)
         risk, flags = self._intent_mismatch(action, risk, flags)
@@ -144,6 +185,36 @@ class ReasoningDetector:
         flags.extend(f"instr:{h}" for h in hits)
         return risk, flags
 
+    # D8a' — the agent naming tool output as its reason for paying.
+    #
+    # This is the signature a *successful* injection leaves, and it is not the same thing as
+    # D8a. D8a fires when the attacker's own words survive into the reasoning ("ignore previous
+    # instructions"); a competent injection does not leave those. What it leaves is a compliant
+    # paraphrase — "the service says a verification fee is required, so I'll send it" — which
+    # reads as perfectly ordinary text and is invisible at L1, where the payment is just a
+    # well-formed authorize to a known merchant.
+    #
+    # The tell is the *authority structure*: money moved because something the agent fetched
+    # said it should. A legitimate purchase is justified by the task, not by the counterparty.
+    def _deference(self, action: Action, text: str, risk: float, flags: list[str]):
+        if action.action_type not in _PAY:
+            return risk, flags
+        match = _DEFERENCE.search(text)
+        if not match:
+            return risk, flags
+
+        tool_sourced = any(s.startswith("tool:") for s in action.context_sources)
+        if tool_sourced:
+            # Deference plus a tool in the context is the full pattern.
+            risk = max(risk, 0.80)
+            flags.append("pays_on_tool_authority")
+        else:
+            # Same language, no tool we can point at — worth a look, not a block.
+            risk = max(risk, 0.45)
+            flags.append("defers_to_external_authority")
+        flags.append(f"deference:{match.group(0)[:40].strip().lower()}")
+        return risk, flags
+
     # D8b — planning to defeat a control the wire will report as satisfied.
     def _evasion(self, text: str, risk: float, flags: list[str]):
         for pattern, weight, name in _EVASION:
@@ -168,9 +239,12 @@ class ReasoningDetector:
 
         verbs = {v.lower() for v in _INTENT_VERBS.findall(intent)}
 
-        # Said it would only look, then paid.
-        if verbs and not (verbs & _BUY_VERBS):
-            risk = max(risk, 0.85)
+        # Said it would only look, then paid. Suggestive rather than conclusive: an agent
+        # narrating the thing it is buying ("getting the search result") states no purchase
+        # verb but is not lying. So this escalates for review and does not block on its own,
+        # and it stays quiet when the reasoning shows the agent knows money is involved.
+        if verbs and not (verbs & _BUY_VERBS) and not _PURCHASE_CONTEXT.search(intent):
+            risk = max(risk, 0.55)
             flags.append("intent_says_read_action_pays")
 
         # Named an amount that does not match what it actually spent.

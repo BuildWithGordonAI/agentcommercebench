@@ -7,12 +7,14 @@ gordonguard CLI.
     gordonguard scan mcp+https://api.example.com/mcp --auth "Bearer $TOKEN"
     gordonguard scan openai:gpt-4o-mini
     gordonguard learn traces.jsonl
+    gordonguard audit agent.json --fail-over 20
 """
 from __future__ import annotations
 
 import argparse
 import json
 import sys
+from pathlib import Path
 from typing import Optional
 
 from . import __version__
@@ -117,6 +119,56 @@ def cmd_learn(args: argparse.Namespace) -> int:
     return 0
 
 
+def _load_spec(path: str, name: Optional[str] = None):
+    """
+    Build an AgentSpec from a JSON config file.
+
+    Accepts the SDK's own shape and the MCP `tools/list` shape, because the second is what a
+    user can actually get out of a running server without writing any code:
+
+        {"tools": [{"name": "pay", "description": "...", "inputSchema": {"properties": {...}}}]}
+    """
+    from .agent import AgentSpec, ToolSpec
+
+    with open(path) as fh:
+        raw = json.load(fh)
+    if isinstance(raw, list):                       # a bare tools/list result
+        raw = {"tools": raw}
+
+    tools = []
+    for entry in raw.get("tools", []):
+        schema = entry.get("inputSchema") or entry.get("parameters") or {}
+        props = schema.get("properties", schema) if isinstance(schema, dict) else {}
+        params = {
+            k: (v.get("type", "string") if isinstance(v, dict) else str(v))
+            + (f" (max {v['maximum']})" if isinstance(v, dict) and "maximum" in v else "")
+            for k, v in props.items()
+        }
+        tools.append(ToolSpec(entry.get("name", "?"), entry.get("description", ""), params))
+
+    kwargs = {"model": None, "tools": tools,
+              "name": name or raw.get("name") or Path(path).stem}
+    for key in ("task", "system_prompt"):
+        if raw.get(key):
+            kwargs[key] = raw[key]
+    return AgentSpec(**kwargs)
+
+
+def cmd_audit(args: argparse.Namespace) -> int:
+    from .config_audit import audit
+
+    report = audit(_load_spec(args.config, args.name))
+    print(report.render())
+    if args.json:
+        with open(args.json, "w") as fh:
+            json.dump(report.to_dict(), fh, indent=2)
+        print(f"  report written to {args.json}\n")
+    if args.fail_over is not None and report.risk > args.fail_over:
+        print(f"  FAIL: risk {report.risk} exceeds {args.fail_over}\n")
+        return 1
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="gordonguard",
@@ -144,6 +196,15 @@ def build_parser() -> argparse.ArgumentParser:
                         help="exit 1 if exposure exceeds N (for CI)")
     p_scan.add_argument("-v", "--verbose", action="store_true")
     p_scan.set_defaults(func=cmd_scan)
+
+    p_audit = sub.add_parser(
+        "audit", help="statically audit an agent config (no model calls, no spend)")
+    p_audit.add_argument("config", help="JSON agent config, or an MCP tools/list dump")
+    p_audit.add_argument("--name", help="override the agent name in the report")
+    p_audit.add_argument("--json", help="write the full report to this path")
+    p_audit.add_argument("--fail-over", type=float, metavar="N",
+                         help="exit 1 if risk exceeds N (for CI)")
+    p_audit.set_defaults(func=cmd_audit)
 
     p_learn = sub.add_parser("learn", help="fit baselines from recorded traces")
     p_learn.add_argument("traces", help="path to a JSONL trace file")

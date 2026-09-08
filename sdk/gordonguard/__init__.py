@@ -13,6 +13,8 @@ Runtime:
     guard = Guard(mode="observe", trace_path="traces.jsonl")
     guard.check(action)
 """
+from .agent import AgentRun, AgentSpec, AgentTarget, ToolSpec
+from .config_audit import AuditReport, ConfigFinding, audit
 from .baselines import (
     BaselineProvider,
     LearnedBaseline,
@@ -41,7 +43,14 @@ __version__ = "0.1.0"
 __all__ = [
     "Action",
     "ActionType",
+    "AgentRun",
+    "AgentSpec",
+    "AgentTarget",
+    "AuditReport",
     "BaselineProvider",
+    "ConfigFinding",
+    "ToolSpec",
+    "audit",
     "Blocked",
     "Context",
     "Decision",

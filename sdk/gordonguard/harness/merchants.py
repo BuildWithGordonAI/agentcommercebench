@@ -1,14 +1,16 @@
 """
-Merchant actors.
+Merchant actors — hostile counterparties.
 
-The reason this module exists: the production fraud detector's three highest-scoring
-signals — homoglyph domains, typosquats, and changed payee addresses — are all
-*malicious-merchant* attacks. They are defended and, until now, untested, because the
-existing adversary can only mutate outbound requests. A merchant that returns a poisoned
-402 is the only way to exercise them.
+Most agent-security tooling assumes the attacker is upstream: a poisoned prompt, a mutated
+request. But an agent that pays for things also has a *counterparty*, and a merchant can
+attack too — by serving from a lookalike domain, quoting an inflated price, changing where
+the money goes, or returning instructions inside its response.
+
+Those attacks cannot be produced by mutating what the agent sends, so a request-side
+adversary cannot reach them at all. This module supplies the other half.
 
 Every merchant is deterministic by default. `AdaptiveMerchant` optionally takes a model and
-varies its evasion after being blocked; it is opt-in so the default harness runs offline
+varies its evasion after being blocked; it is opt-in, so the default harness runs offline
 with no API key.
 """
 from __future__ import annotations
