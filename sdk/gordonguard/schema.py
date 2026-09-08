@@ -74,6 +74,8 @@ class Action:
     vendor: Optional[str] = None
     category: Optional[str] = None
     endpoint: Optional[str] = None
+    payee: Optional[str] = None
+    """Settlement destination actually used, for comparison against the registry."""
     idempotency_key: Optional[str] = None
 
     payload: dict[str, Any] = field(default_factory=dict)

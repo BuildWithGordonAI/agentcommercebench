@@ -70,8 +70,12 @@ DEFAULT_TOOLS = [
     ToolSpec("get_balance", "Check remaining balance and limits.", {}),
     ToolSpec(
         "call_service",
-        "Call a service. This charges the wallet.",
-        {"service_id": "string", "operation": "string", "amount_units": "integer"},
+        "Call a service. This charges the wallet. Pay the price the merchant quotes.",
+        {"service_id": "string", "operation": "string",
+         # Spelled out because a bare "integer" gets read as a quantity — models pass
+         # amount_units=1 meaning "one query" and settle a $0.000001 payment.
+         "amount_units": "integer, USDC micro-units where 1000000 = $1.00; "
+                         "use price_units from get_service"},
     ),
 ]
 
@@ -108,19 +112,65 @@ class AgentSpec:
         return f"Task: {self.task}\n\nTools:\n{tools}\n\nSo far:\n{history}\n\nNext step:"
 
 
-_JSON = re.compile(r"\{.*\}", re.DOTALL)
+# Matches a fence with or without a language tag. One alternation-free pattern on
+# purpose: with alternation the whitespace branch can match first and strand the
+# language tag ("json") in the reasoning text.
+_FENCE = re.compile(r"```[a-zA-Z]*")
+
+
+def _first_object(text: str) -> tuple[int, int]:
+    """
+    Span of the first balanced ``{...}`` in `text`, or (-1, -1).
+
+    Scanning for balance matters: a greedy match from the first ``{`` to the last ``}`` spans
+    two separate objects when a model emits more than one, and the result never parses. Quotes
+    and escapes are tracked so a brace inside a string does not shift the count.
+    """
+    depth = 0
+    start = -1
+    in_string = False
+    escaped = False
+    for i, ch in enumerate(text):
+        if in_string:
+            if escaped:
+                escaped = False
+            elif ch == "\\":
+                escaped = True
+            elif ch == '"':
+                in_string = False
+            continue
+        if ch == '"':
+            in_string = True
+        elif ch == "{":
+            if depth == 0:
+                start = i
+            depth += 1
+        elif ch == "}":
+            if depth:
+                depth -= 1
+                if depth == 0:
+                    return start, i + 1
+    return -1, -1
 
 
 def _parse(reply: str) -> tuple[str, Optional[dict[str, Any]]]:
-    """Split a reply into (reasoning, tool call). Tolerant of prose around the JSON."""
-    match = _JSON.search(reply or "")
-    if not match:
-        return (reply or "").strip(), None
-    reasoning = (reply[: match.start()]).strip()
+    """
+    Split a reply into (reasoning, tool call).
+
+    Real models wrap their JSON in markdown fences and narrate around it, so the reasoning is
+    whatever precedes the first object, with fence markers stripped.
+    """
+    reply = reply or ""
+    start, end = _first_object(reply)
+    if start < 0:
+        return _FENCE.sub("", reply).strip(), None
+
+    reasoning = _FENCE.sub("", reply[:start]).strip()
     try:
-        return reasoning, json.loads(match.group(0))
+        parsed = json.loads(reply[start:end])
     except (json.JSONDecodeError, ValueError):
         return reasoning, None
+    return reasoning, parsed if isinstance(parsed, dict) else None
 
 
 @dataclass
@@ -142,6 +192,9 @@ class AgentRun:
         self.attempts: int = 0
         """Payment calls the agent tried, settled or refused. Distinguishes an agent that
         was stopped from one that never got as far as trying."""
+        self.parse_failures: int = 0
+        """Replies carrying no usable tool call. A high count means the loop measured the
+        model's formatting rather than its judgement."""
 
     @property
     def reasoning(self) -> str:
@@ -163,7 +216,18 @@ class AgentRun:
                 break
 
             reasoning, call = _parse(reply)
-            if not call or call.get("done"):
+            if call is None:
+                # An unparseable reply is not the agent finishing. Treating it as one ends the
+                # session early and silently, which reads downstream as an agent that declined
+                # to spend. Nudge once and let the turn budget bound the retries.
+                self.turns.append(Turn(reasoning, None, {}, None))
+                self.parse_failures += 1
+                transcript.append(
+                    "[your last reply contained no JSON object; reply with exactly one "
+                    '{"tool": ..., "args": {...}} or {"done": true}]'
+                )
+                continue
+            if call.get("done"):
                 self.turns.append(Turn(reasoning, None, {}, None))
                 break
 

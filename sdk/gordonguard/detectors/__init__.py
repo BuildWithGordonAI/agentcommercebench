@@ -9,6 +9,7 @@ from .base import (
     default_pipeline,
 )
 from .behavioral import BehavioralDetector
+from .catalog import CatalogDetector
 from .payload import PayloadDetector
 from .price import PriceDetector
 from .reasoning import ReasoningDetector
@@ -18,6 +19,7 @@ __all__ = [
     "BLOCK_AT",
     "ESCALATE_AT",
     "BehavioralDetector",
+    "CatalogDetector",
     "Context",
     "Detector",
     "PayloadDetector",

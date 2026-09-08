@@ -111,6 +111,7 @@ def default_pipeline() -> Pipeline:
     from .price import PriceDetector
     from .registry import RegistryDetector
     from .reasoning import ReasoningDetector
+    from .catalog import CatalogDetector
 
     return Pipeline(
         [
@@ -118,6 +119,8 @@ def default_pipeline() -> Pipeline:
             BehavioralDetector(),
             PriceDetector(),
             RegistryDetector(),
+            # Scores zero without a registry, so it is inert until one is supplied.
+            CatalogDetector(),
             ReasoningDetector(),
         ]
     )

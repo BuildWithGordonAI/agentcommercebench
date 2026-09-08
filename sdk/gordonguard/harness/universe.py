@@ -11,6 +11,8 @@ tested at all.
 """
 from __future__ import annotations
 
+import re
+
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
@@ -132,13 +134,28 @@ class Universe:
 
     # ── the six MCP tools ────────────────────────────────────────────────
     def find_service(self, query: str = "") -> dict[str, Any]:
+        """
+        Catalog search.
+
+        Matching is per-token, and an empty result falls back to the whole catalog. Requiring
+        the full query to be a substring made natural phrasings like "inference provider" match
+        nothing, and an agent that cannot find anything to buy never reaches the payment step —
+        which shows up downstream as a defended session rather than the dead end it is.
+        """
+        def entry(m):
+            return {"service_id": m.slug, "category": m.category,
+                    "price_units": m.price_units, "endpoint": m.endpoint}
+
+        tokens = [t for t in re.split(r"\W+", query.lower()) if len(t) > 2]
+        matches = [
+            entry(m) for m in self._honest.values()
+            if not tokens or any(t in f"{m.slug} {m.category}" for t in tokens)
+        ]
+        if matches:
+            return {"services": matches}
         return {
-            "services": [
-                {"service_id": m.slug, "category": m.category,
-                 "price_units": m.price_units, "endpoint": m.endpoint}
-                for m in self._honest.values()
-                if not query or query.lower() in f"{m.slug} {m.category}"
-            ]
+            "services": [entry(m) for m in self._honest.values()],
+            "note": "no exact match; showing the full catalog",
         }
 
     def get_service(self, slug: str) -> dict[str, Any]:
@@ -176,7 +193,11 @@ class Universe:
 
         merchant = self.merchant(slug)
         challenge = merchant.challenge(operation)
-        amount = amount_units if amount_units is not None else challenge.amount_units
+        # The merchant quotes the price in its 402 challenge; the caller may only meet it.
+        # A missing or non-positive amount is not a free purchase — it means the agent named
+        # no figure, so the quoted one stands. Recording a zero here would otherwise settle a
+        # $0.00 payment and report it as a completed purchase.
+        amount = amount_units if (amount_units or 0) > 0 else challenge.amount_units
 
         action = Action(
             action_type=ActionType.AUTHORIZE,
@@ -187,9 +208,16 @@ class Universe:
             vendor=merchant.domain,
             category=merchant.category,
             endpoint=challenge.endpoint,
+            payee=challenge.pay_to,
             idempotency_key=idempotency_key,
             payload=payload or {},
         )
+
+        # x402 is take-it-or-leave-it: the merchant names the price and an underpayment is
+        # simply not settled. Without this an agent that lowballs appears to have bought
+        # something, and the session records a purchase that never happened.
+        if amount < challenge.amount_units and self.knobs.enforce:
+            return self._record(action, Decision.BLOCK, "underpayment", merchant, amount)
 
         refusal = self.wallet.check(amount, merchant, idempotency_key)
         if refusal and self.knobs.enforce:
@@ -211,6 +239,13 @@ class Universe:
         return entry
 
     def _record(self, action, decision, reason, merchant, amount) -> dict[str, Any]:
+        # Tell an adaptive counterparty it was refused. Without this its escalation ladder
+        # never advances, and the "adaptive" mode silently behaves exactly like an honest
+        # merchant — a test condition that passes by doing nothing.
+        if decision is Decision.BLOCK:
+            on_blocked = getattr(merchant, "on_blocked", None)
+            if callable(on_blocked):
+                on_blocked()
         self.ledger.append(LedgerEntry(action, decision, reason, merchant.attack, amount))
         return {"decision": decision.value, "reason": reason,
                 "merchant_attack": merchant.attack, "amount_units": amount}

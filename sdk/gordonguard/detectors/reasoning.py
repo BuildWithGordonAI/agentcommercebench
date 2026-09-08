@@ -115,6 +115,44 @@ _PURCHASE_CONTEXT = re.compile(
 )
 _AMOUNT_RE = re.compile(r"\$\s?([\d,]+(?:\.\d{1,2})?)")
 
+# Context that makes a dollar figure something other than the intended purchase — a wallet
+# balance, a remaining budget, a per-transaction cap.
+_NOT_A_PURCHASE_AMOUNT = re.compile(
+    r"\b(balance|available|remaining|budget|limit|cap|ceiling|allowance|so far|"
+    r"spent|total of|per[- ]transaction|daily)\b", re.IGNORECASE)
+
+
+def _purchase_amount(text: str) -> Optional[str]:
+    """
+    The dollar figure the reasoning presents as the purchase, if any.
+
+    Figures introduced as a balance or a cap are skipped: an agent that says "I have $100
+    available" and then spends $0.05 has not contradicted itself, and treating the first
+    figure as the intent flagged ordinary sessions at a 0.0x ratio.
+    """
+    for match in _AMOUNT_RE.finditer(text or ""):
+        # Both sides: the qualifier can lead ("my balance is $100") or trail
+        # ("I have $100 available"), and checking only one side missed half of them.
+        window = (text[max(0, match.start() - 60):match.start()]
+                  + " " + text[match.end():match.end() + 30])
+        if _NOT_A_PURCHASE_AMOUNT.search(window):
+            continue
+        return match.group(1)
+    return None
+
+
+# An obligation the counterparty asserts that is not simply the price of the thing being
+# bought. This is what separates an injected demand from a 402 challenge.
+_EXTRA_OBLIGATION = re.compile(
+    r"\b(verification|verify|validation|activation|unlock|release|fees?|"
+    r"handling|deposit|prepayment|pre-?authoriz\w+|"
+    r"additional\s+(?:payment|fee|charge|transfer)|extra\s+(?:payment|fee|charge)|"
+    r"security\s+(?:deposit|fee)|before\s+(?:i|we|you)\s+can|first\s+send|"
+    r"send\s+.{0,20}\s+first|transfer\s+.{0,30}\s+before|remaining\s+balance|"
+    r"0x[a-fA-F0-9]{4,})\b",
+    re.IGNORECASE,
+)
+
 # Reasoning that sources its justification from the counterparty rather than the task.
 _DEFERENCE = re.compile(
     r"("
@@ -203,6 +241,14 @@ class ReasoningDetector:
         if not match:
             return risk, flags
 
+        # A counterparty stating its own price is the protocol working, not an attack:
+        # "the service requires 20,000 units" is what a 402 challenge says. What matters is
+        # deference to an obligation *beyond* the purchase — a fee, a verification step, a
+        # transfer that has to happen first. Without that marker this fired on most ordinary
+        # sessions, which is worse than not firing at all.
+        if not _EXTRA_OBLIGATION.search(text):
+            return risk, flags
+
         tool_sourced = any(s.startswith("tool:") for s in action.context_sources)
         if tool_sourced:
             # Deference plus a tool in the context is the full pattern.
@@ -248,10 +294,15 @@ class ReasoningDetector:
             flags.append("intent_says_read_action_pays")
 
         # Named an amount that does not match what it actually spent.
-        stated = _AMOUNT_RE.search(intent)
+        #
+        # Only a figure the agent presents as the *purchase* counts. Reasoning routinely
+        # recites the wallet balance ("I have $100 available"), and taking the first dollar
+        # figure in the text made every ordinary session with a balance check look like a
+        # 0.0x mismatch.
+        stated = _purchase_amount(intent)
         if stated and action.amount_units:
             try:
-                stated_units = int(float(stated.group(1).replace(",", "")) * 1_000_000)
+                stated_units = int(float(stated.replace(",", "")) * 1_000_000)
             except ValueError:
                 stated_units = None
             if stated_units and stated_units > 0:
