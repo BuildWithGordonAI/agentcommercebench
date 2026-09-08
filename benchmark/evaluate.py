@@ -203,6 +203,7 @@ def run(
     seed: int = 42,
     real_sessions_dir: str = None,
     verbose: bool = False,
+    skip_llm: bool = False,
 ):
     print(f"\nAgentCommerceBench  seed={seed}  n_clean={n_clean}  n_per_scenario={n_per_scenario}")
     print("=" * 60)
@@ -244,8 +245,10 @@ def run(
             e._persona = s.persona.value
 
     # 4. Run each detector
+    active_detectors = {k: v for k, v in DETECTORS.items()
+                        if not (skip_llm and k == "llm_text_safety")}
     all_results = {}
-    for det_name, pipeline in DETECTORS.items():
+    for det_name, pipeline in active_detectors.items():
         print(f"  Running {det_name}...", end=" ", flush=True)
         results = replay_batch(test, pipeline=pipeline, detector_name=det_name)
         all_results[det_name] = results
@@ -328,6 +331,8 @@ if __name__ == "__main__":
     parser.add_argument("--real-sessions",  type=str, default=None,
                         help="Directory of real captured sessions to include")
     parser.add_argument("--verbose",        action="store_true")
+    parser.add_argument("--skip-llm",       action="store_true",
+                        help="Skip llm_text_safety (avoids Bedrock API calls)")
     args = parser.parse_args()
     run(
         n_clean=args.n_clean,
@@ -335,4 +340,5 @@ if __name__ == "__main__":
         seed=args.seed,
         real_sessions_dir=args.real_sessions,
         verbose=args.verbose,
+        skip_llm=args.skip_llm,
     )

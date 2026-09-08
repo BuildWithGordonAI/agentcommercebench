@@ -54,6 +54,7 @@ from harness.simulate.injectors import inject, ALL_SCENARIOS
 from benchmark.baselines import velocity, keyword, isolation_forest
 from benchmark.baselines.llm_safety import detect as llm_safety_detect
 from benchmark.models import session_graph as _sgrf
+from benchmark.detectors import sequence_model
 from harness.simulate.replay import replay as _replay_session
 
 # gordon_+seq (proprietary pipeline) — not published in this repo.
@@ -401,6 +402,7 @@ def run(
     seed: int = 42,
     real_sessions_dir: str = None,
     as_json: bool = False,
+    skip_llm: bool = False,
 ):
     if not as_json:
         print(f"\nAgentCommerceBench — Holistic Three-Layer Benchmark")
@@ -438,8 +440,10 @@ def run(
             e._persona = s.persona.value
 
     # 4. Run each detector
+    active_detectors = {k: v for k, v in DETECTORS.items()
+                        if not (skip_llm and k == "llm_text_safety")}
     all_results: dict[str, list] = {}
-    for det_name, pipeline in DETECTORS.items():
+    for det_name, pipeline in active_detectors.items():
         if not as_json:
             print(f"  Running {det_name}...", end=" ", flush=True)
         results = replay_batch(test, pipeline=pipeline, detector_name=det_name)
@@ -456,7 +460,9 @@ def run(
     if not as_json:
         print(_scenario_table(all_results, in_test))
 
-    # 7. Cross-layer first-detection matrix (using gordon_+seq)
+    # 7. Cross-layer first-detection matrix (using gordon_+seq, if available)
+    if "gordon_+seq" not in DETECTORS:
+        return out
     seq_pipeline = DETECTORS["gordon_+seq"]
     replay_batch(attacked_test, pipeline=seq_pipeline, detector_name="gordon_+seq_phase")
     for s in attacked_test:
@@ -519,6 +525,8 @@ if __name__ == "__main__":
     parser.add_argument("--seed",           type=int, default=42)
     parser.add_argument("--real-sessions",  type=str, default=None)
     parser.add_argument("--json",           action="store_true")
+    parser.add_argument("--skip-llm",       action="store_true",
+                        help="Skip llm_text_safety (avoids Bedrock API calls)")
     args = parser.parse_args()
 
     run(
@@ -527,4 +535,5 @@ if __name__ == "__main__":
         seed=args.seed,
         real_sessions_dir=args.real_sessions,
         as_json=args.json,
+        skip_llm=args.skip_llm,
     )

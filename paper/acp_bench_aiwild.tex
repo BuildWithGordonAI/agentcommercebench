@@ -1,0 +1,747 @@
+\documentclass{article}
+
+% Use numeric citations (required for thebibliography without bibtex)
+\PassOptionsToPackage{numbers,compress}{natbib}
+
+% Workshop: single-blind reviewing
+\usepackage[sglblindworkshop]{neurips_2026}
+\workshoptitle{Agents in the Wild: Safety, Security, and Beyond (AIWILD @ NeurIPS 2026)}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{hyperref}
+\usepackage{url}
+\usepackage{booktabs}
+\usepackage{amsfonts}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{nicefrac}
+\usepackage{microtype}
+\usepackage{xcolor}
+\usepackage{graphicx}
+\usepackage{multirow}
+\usepackage{array}
+
+\title{Agentic Commerce Bench (ACB): A Cross-Layer Fraud Benchmark for Commerce Agents}
+
+\author{%
+  Anonymous Author(s)
+}
+
+\begin{document}
+
+\maketitle
+
+% ─────────────────────────────────────────────────────────────────────────────
+\begin{abstract}
+When an LLM agent books travel or purchases API credits, it issues
+\texttt{ConsequentialAction} messages over the MCP wire---real, partially-irreversible
+financial commitments without per-action human confirmation. Some protocol violations
+at this layer are structurally deterministic: a \texttt{COMMIT} before any discovery
+step, an MCC outside the wallet allowlist. Deterministic rule checks handle these
+trivially. The hard problem is the behavioral class: velocity floods that match a
+busy traveler's profile, session hijacks with subtly mismatched agent identifiers,
+idempotency replays of format-identical keys, and marginal overspend that overlaps
+with legitimate high-value purchases. These violations produce no signal at the
+reasoning layer and elude simple rule checks. Existing safety benchmarks measure L0
+threats (induced intent); none provides a rigorous testbed for behavioral violations
+at the protocol layer (L1).
+
+We introduce \textbf{ACB}, the first benchmark, to our knowledge, that measures fraud
+detection at \emph{both} the agent reasoning layer (L0) and the payment-protocol layer
+(L1) over identical sessions, making the boundary between them measurable rather than
+assumed. We formalize the enforcement problem via a commerce state
+automaton $\mathcal{M}$ grounded in ISO~8583, x402, and modern payment APIs, and
+define eight violation classes with the hard behavioral cases as primary targets. We
+measure \textbf{effectiveness} (catch rate per class), \textbf{reliability} (false-positive
+stability across five independent seeds with genuine distributional overlap), and
+\textbf{traceability} (structured auditable decisions). Structural violations are
+caught with deterministic rules (100\%, 0\% FPR---trivially). Behavioral attacks
+(B2--B6) and marginal overspend (B8) are the research challenge: our reference cascade
+(ACB-Ref) reaches $88.0\%{\pm}0.9\%$ overall effectiveness at $\mathbf{0.0\%}$ hard FPR.
+The strongest L0 baseline---full-session Claude Sonnet~4.6 LLM-as-judge---achieves
+61\% overall recall at 0\% hard FPR, limited by absent L1 protocol state (B4: 10\%,
+B5: 20\%, B8: 25\%); ACB-Ref surpasses it by 27 recall points at 300$\times$ lower cost.
+Crucially, \emph{neither layer dominates}: the L0 judge strictly outperforms our L1
+cascade on prompt injection (100\% vs.\ 70\%) and MCC spoofing (95\% vs.\ 82.5\%),
+while L1 wins on six other classes. An oracle able to see both surfaces would reach
+93.3\%, above either alone. Defense-in-depth across L0 and L1 is therefore \emph{forced
+by disjoint observability}, not a design preference---and no unified detector can span
+both surfaces today. Identity attacks (B4/B5) remain at 68--70\% even with ACB-Ref---open
+for the community. ACB, generator, and verifier are released as open-source.
+\end{abstract}
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Introduction}
+\label{sec:intro}
+
+LLM agents are now authorized to execute real financial transactions: booking
+travel, subscribing to SaaS tools, purchasing cloud compute and API credits.
+These are partially-irreversible commitments issued through structured protocol
+messages---\emph{without} per-action human confirmation. The agent is, in
+effect, a new kind of payment terminal, and the software layer between its
+decisions and the payment rail must enforce payment-protocol invariants just as
+ISO~8583 terminal hardware has for four decades.
+
+\paragraph{The hard enforcement problem.} Some violations are structurally deterministic and
+trivially enforced by rule: a \texttt{COMMIT} without a prior \texttt{FIND} is always invalid,
+an MCC outside the wallet allowlist always fails, an amount obviously above the ceiling is
+always blocked. These need a rule check, not research. The hard class is behavioral, and every
+member of it is individually well-formed and in-policy. A \emph{velocity flood} (B2) is a burst
+of commits matching a legitimate busy-traveler profile. A \emph{session hijack} (B4) carries a
+subtly wrong agent identifier, detectable only with cross-session identity tracking. An
+\emph{idempotency replay} (B5) reuses a settled key that is format-identical to a valid one,
+detectable only against a stateful registry. \emph{Marginal overspend} (B8) sits at
+\$3,010--\$4,500, overlapping legitimate high-value travel at \$1,800--\$2,800 in log-amount
+space. None produces a reasoning-layer signal---no injected text, no jailbreak phrase---and no
+rule catches them without a registry, a behavioral model, or per-persona statistics.
+\emph{No benchmark provides a rigorous testbed for this class.}
+
+\paragraph{The gap.} Safety benchmarks for agentic systems measure L0 threats:
+whether an agent can be induced, through injection or jailbreak, to intend a
+harmful action~\cite{agentdojo,agentharm}. Safety tools at the agent reasoning layer
+(L0)---garak, promptfoo, Llama Guard, LLM-as-judge---observe agent text output and
+conversation history. They are structurally blind to behavioral protocol violations: there
+is no text signal to observe in a velocity flood, a session hijack, an
+idempotency replay, or a marginal overspend. Even within L1, simple rule checks
+handle the deterministic cases---the behavioral cases require behavioral models
+with no labeled data, stateful registries, and calibrated uncertainty. No
+benchmark provides the infrastructure to measure whether any system handles these
+cases, or to compare methods on the hard distributional overlaps that make them genuinely difficult.
+
+\paragraph{This paper.} We introduce \textbf{ACB}, and contribute four things.
+\textbf{(1)~A benchmark built around the hard cases} (\S\ref{sec:dataset}): 600 synthetic
+sessions over 10 attack classes from persona-conditional Markov chains, centred on B4/B5
+(stateful identity and replay), B8-marginal (distributional overlap with legitimate
+high-value travel), B2 (velocity floods matching real traveler profiles), and B7s/B8s
+(behavioral variants of rule-trivial attacks). Hard negatives at \$1,800--\$2,800 create
+genuine ambiguity with B8. \textbf{(2)~A problem formulation} (\S\ref{sec:formulation}): a
+commerce state automaton $\mathcal{M}$ separating deterministic violations from behavioral
+ones, with a taxonomy classifying each class by detection difficulty and observation-surface
+requirement. \textbf{(3)~A reference cascade, ACB-Ref} (\S\ref{sec:method}): behavioral ML
+over clean session statistics, deterministic rules for the trivial cases, and a
+rules-certainty veto that removes hard false positives on legitimate high-value sessions
+without costing recall. \textbf{(4)~A measured L0/L1 complementarity result}
+(\S\ref{sec:results}): because ACB scores both layers on identical sessions, we show neither
+subsumes the other---each strictly wins on classes the other misses, and the per-attack
+maximum (93.3\%) exceeds both. This is, to our knowledge, the first quantification of the
+reasoning/protocol observability boundary in agentic commerce, and it establishes that the
+two layers must be instrumented separately. The evaluation also surfaces what remains
+unsolved: B4 and B5 sit at 68--70\% even with the full cascade, needing infrastructure beyond
+single-session behavioral models.
+
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Related Work}
+\label{sec:related}
+
+\paragraph{LLM agent safety benchmarks.}
+AgentDojo~\cite{agentdojo} evaluates prompt-injection attacks and defenses in LLM agent
+pipelines, including a banking suite. AgentHarm~\cite{agentharm} benchmarks harmful agent
+behaviors across a broad taxonomy of misuse scenarios. Both measure whether an agent can be
+induced to \emph{reason toward} a harmful action, not whether a correctly-reasoning agent's
+resulting protocol messages violate payment invariants---the orthogonal surface ACB targets.
+FinHarness~\cite{finharness} is closer to our setting: it places an inline safety harness
+over the lifecycle of a finance LLM agent. It remains oriented to the agent's own reasoning
+and tool use rather than to the wallet state, action ordering, and idempotency registry that
+define protocol validity at L1.
+
+\paragraph{Agent reasoning layer safety tools.}
+Garak~\cite{garak} probes LLM output with adversarial triggers. PromptFoo~\cite{promptfoo}
+applies assertion rules to agent responses. Llama Guard~\cite{llamaguard} classifies
+conversation content. All three operate at the agent reasoning layer on text output. We do
+not run them on ACB: their inputs are model text, whereas an ACB session is a structured
+action stream in which only the \texttt{payload} field carries text at all. Reporting their
+published figures from other task distributions as ACB results would be misleading. Instead
+we measure a single, deliberately strong L0 ceiling---a full-session LLM-as-judge
+(\S\ref{sec:experiments})---which shares their observation surface but is given the entire
+session at once.
+
+\paragraph{Why adjacent detection stacks do not transfer.}
+Three mature literatures look applicable and are not. \emph{Card fraud detection}
+(gradient boosting and sequence models over tabular logs~\cite{pozzolo2015}) operates on
+completed transactions at the rail (L2+), receiving one flattened record rather than a
+multi-step action stream, and depends on labeled historical data that does not exist for a
+surface this new. \emph{UEBA} (Splunk, Securonix) does score action sequences against
+per-user baselines, but those baselines are fitted to human sessions rather than agent
+grammars, carry no notion of wallet ceilings, MCC allowlists, or idempotency keys, and run
+over completed audit logs rather than the live stream where a compensating void is still
+possible. \emph{WAFs and API rate limiters} see HTTP fields and request rate, so they catch
+flooding but not a velocity flood that stays within per-request limits (B2), a hijack using
+valid credentials (B4), or marginal overspend that satisfies field-level schema
+(B8-marginal). Each fails for the same underlying reason: wrong observation layer, wrong
+input shape, or wrong training distribution.
+
+\paragraph{Payment protocol security.}
+ISO~8583~\cite{iso8583} defines the ordered financial message lifecycle enforced
+by payment terminals for four decades. The x402 protocol~\cite{x402} carries that
+lifecycle over HTTP for agent-initiated payments, and recent analyses enumerate
+attacks against it~\cite{x402attacks}. Neither the standard nor the protocol
+provides a detection benchmark.
+Stripe Radar fires at L2+, after the agent has issued a payment API call---too
+late for in-session recovery and without access to the action sequence that led there.
+
+\paragraph{Gap.}
+No existing benchmark measures behavioral enforcement at L1. The closest systems
+(UEBA, card fraud ML, API gateways) each fail to transfer for structural reasons:
+wrong observation layer, wrong input format, or wrong training distribution.
+ACB provides the infrastructure---formal state machine, persona-conditional
+session generator, hard negatives with distributional overlap---needed to benchmark
+methods that would actually work at L1.
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Problem Formulation}
+\label{sec:formulation}
+
+\subsection{Protocol Failure Modes in Agentic Commerce}
+
+Enforcement failures originate at distinct sites, each observable only from certain
+layers. Agent-identity failures (session hijack, impersonation) and merchant-allowlist
+bypass are interceptable at L1; agent-reasoning failures (injection, jailbreak) at L0 and
+L1 both; payment-rail failures (post-commit reversal) only at L2+. Two classes are
+\textbf{interceptable at L1 alone}: protocol-wire failures (grammar violation such as
+\texttt{COMMIT} before \texttt{FIND}, MCC swap, replay) and wallet/authorization failures
+(spend-ceiling breach, idempotency-key reuse). These carry no reasoning-layer signal, so no
+existing L0 benchmark can measure them --- and they are what ACB targets.
+
+
+\subsection{Commerce State Automaton}
+\label{sec:automaton}
+
+Payment processing for agentic systems has a formal structure. Every financial
+commitment---whether through ISO~8583~\cite{iso8583}, x402~\cite{x402}, or
+modern payment APIs (Stripe~\cite{stripe})---follows the same ordered lifecycle:
+\[
+\texttt{START} \to \texttt{FIND} \to \texttt{QUOTE} \to \texttt{RESERVE} \to
+\texttt{COMMIT} \to \texttt{SETTLE} \to \{\texttt{VOID}, \texttt{END}\}
+\]
+
+\textbf{Definition 3.1} (Commerce State Automaton). Let
+$\mathcal{M} = (Q, \Sigma, \delta, q_0, F)$ where:
+\begin{itemize}
+\item $Q = \{\texttt{START}, \texttt{FIND}, \texttt{QUOTE}, \texttt{RESERVE},
+  \texttt{COMMIT}, \texttt{SETTLE}, \texttt{VOID}, \texttt{END}\}$
+\item $\Sigma = \{\text{find}, \text{quote}, \text{reserve}, \text{commit},
+  \text{settle}, \text{void}, \text{refund}\}$
+\item $q_0 = \texttt{START}$, $F = \{\texttt{END}\}$
+\end{itemize}
+
+Any agent session trajectory not accepted by $\mathcal{M}$ is a
+payment-protocol violation. Running $\mathcal{M}$ against an action stream is
+$O(n)$ in session length---no LLM inference required.
+The transition relation $\delta$ is: \texttt{START}$\xrightarrow{\textit{find}}$\texttt{FIND}
+$\xrightarrow{\textit{find}}$\texttt{FIND} (iterative search; ISO~8583 pre-auth inquiry)
+$\xrightarrow{\textit{quote}}$\texttt{QUOTE}; from \texttt{QUOTE} either
+$\xrightarrow{\textit{reserve}}$\texttt{RESERVE} (hold funds, 2PC prepare) or
+$\xrightarrow{\textit{commit}}$\texttt{COMMIT} (direct commit, Saga);
+\texttt{RESERVE}$\xrightarrow{\textit{commit}}$\texttt{COMMIT} or
+$\xrightarrow{\textit{void}}$\texttt{VOID} (Saga compensation);
+\texttt{COMMIT}$\xrightarrow{\textit{settle}}$\texttt{SETTLE} (ISO~8583 0220 financial advice) or
+$\xrightarrow{\textit{refund}}$\texttt{VOID}; any state may close to \texttt{END}.
+
+
+The critical difference in agentic systems: ISO~8583 enforced $\mathcal{M}$
+through terminal hardware for four decades; Stripe enforces it through
+PaymentIntent state. An LLM agent issuing structured API calls directly to a
+payment rail can skip states. \textbf{The agent is the terminal.}
+
+\subsection{Protocol Enforcement Problem}
+
+\textbf{Definition 3.2} (L1 protocol enforcement). Given an agent session
+$\tau = (a_1, a_2, \ldots, a_n)$ where each $a_i$ is a typed
+\texttt{ConsequentialAction} message carrying fields
+$(type, amount, merchant\_id, mcc, idempotency\_key, payload, session\_id)$,
+and a wallet $W$ encoding per-agent authorization state $(persona, spend\_ceiling,
+mcc\_allowlist, committed\_keys)$, determine whether $\tau$ constitutes a
+payment-protocol violation: $\tau \notin \mathcal{L}(\mathcal{M})$ or any field
+constraint of $W$ is violated.
+
+The enforcement problem decomposes into two regimes. \textbf{Trivial regime}: violations of $\mathcal{M}$'s grammar (B1, B9) and of hard field constraints (B7: MCC not in allowlist; B8-clear: amount obviously above ceiling) are caught by a deterministic rule check with 0\% FPR by construction. Any rule checker solves these; they are not the research question.
+
+\textbf{Hard regime---ACB's target}: build a verifier $V(\tau, W) \in \{\textit{allow}, \textit{flag}, \textit{block}\}$ for violations that require (a) per-persona behavioral baselines (B2: velocity anomaly within session-count norms; B3: merchant anomaly against persona profile), (b) stateful cross-session infrastructure (B4: agent\_id mismatch across sessions; B5: idempotency key that is format-identical to legitimate but previously settled), or (c) distributional disambiguation against hard negatives (B8-marginal: amounts in [\$3{,}010, \$4{,}500] overlapping legitimate high-value travel at [\$1{,}800, \$2{,}800]). The verifier must be callable in real time at each action $a_i$, before the action reaches the payment rail, and must remain reliable (low hard FPR on legitimate high-value sessions that resemble B8) and traceable (every decision auditable without replaying the session).
+
+\subsection{Attack Taxonomy}
+\label{sec:taxonomy}
+
+Table~\ref{tab:taxonomy} classifies ten L1 attack classes by origination site,
+violation type, and detection difficulty.
+
+\begin{table}[tb]
+\caption{L1 violation taxonomy by detection difficulty. \emph{Rule-trivial}: caught
+  deterministically by a grammar or field check at 0\% FPR by construction --- any rule
+  checker solves them, so they are a sanity check rather than a research target.
+  \emph{Behaviorally hard}: requires behavioral modeling, stateful registries, or
+  persona-conditional statistics. B7s and B8s are behavioral variants of B7/B8 that rules
+  catch at 0\%; B6 is uniquely detectable at both L0 and L1, by different signals.}
+\label{tab:taxonomy}
+\centering
+\footnotesize
+\begin{tabular}{llp{2.8cm}lll}
+\toprule
+ID & Name & Violation & L0 Signal & Detection class & Interceptable at \\
+\midrule
+B1 & Cold-start auth & State: \texttt{START}$\to$\texttt{COMMIT} & None & Rule-trivial & L1 only \\
+B7 & MCC violation & Field: MCC not in allowlist & None & Rule-trivial & L1 only \\
+B8-clear & Spend-limit (clear) & Amount obviously above ceiling & None & Rule-trivial & L1 only \\
+\midrule
+B2 & Velocity flood & Count within per-session norm & None & \textbf{Behaviorally hard} & L1 only \\
+B3 & Merchant anomaly & Cross-persona MCC pattern & Weak & \textbf{Behaviorally hard} & L1 (behav.) \\
+B4 & Session hijack & agent\_id mismatch (subtle) & None & \textbf{Hard (stateful)} & L1 only \\
+B5 & Idem.\ replay & Settled key reuse, format-identical & None & \textbf{Hard (stateful)} & L1 only \\
+B6 & Prompt injection & Adversarial payload text & \textbf{Yes (L0)} & \textbf{Hard (evasion)} & \textbf{Both} \\
+B7s & MCC spoof & Allowlisted MCC, restricted merchant & Weak & \textbf{Behaviorally hard} & L1 (behav.) \\
+B8-marginal / B8s & Spend-limit (marginal / aggregate) & Amount OOD or aggregate OOD & None & \textbf{Hard (distributional)} & L1 only \\
+B9$^\star$ & Revert-grant & \texttt{SETTLE}$\to$\texttt{COMMIT} & None & Rule-trivial & L1 only \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Rule-trivial attacks} (B1, B7, B8-clear) are included in ACB for
+completeness---to confirm that any L1 enforcer handles the baseline before
+measuring the hard cases. Showing 100\% recall on rule-trivial attacks is
+not a result; it is a sanity check. \textbf{The research benchmark is
+the behaviorally hard subset}: B2, B3, B4, B5, B6, B7s, and B8-marginal/B8s.
+B7s and B8s are the behavioral variants of the rule-trivial B7 and B8-clear:
+B7s uses an allowlisted MCC code (e.g., \texttt{7372} software) but targets a
+restricted merchant domain (e.g., \texttt{betsoftware.io}); B8s keeps each
+transaction under the per-transaction ceiling while the session aggregate is
+anomalous for the persona. Rules catch 0\% of B7s/B8s by construction.
+B9$^\star$ (revert-grant) is defined for taxonomy completeness but not evaluated
+here---it requires mocking post-settlement rail state; evaluation is future work.
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{ACB-Ref: The Reference L1 Detector}
+\label{sec:method}
+
+ACB-Ref, the reference verifier released with the benchmark, intercepts at each
+\texttt{ConsequentialAction} before it reaches the payment rail. Three
+verification tiers run in cascade:
+
+\begin{enumerate}
+\item \textbf{LocalRulesVerifier} ($<$1\,ms): deterministic checks against
+  wallet state. Enforces $\mathcal{M}$'s valid transitions and field constraints
+  (MCC allowlist, spend ceiling, sequence ordering). Confidence$=1.0$;
+  uncertainty$=0.0$. Zero false positives by construction.
+
+\item \textbf{BehavioralML} (trained on 500 clean sessions, seed=7): four
+  features---Markov sequence log-likelihood, commit-count velocity $z$-score,
+  amount OOD $z$-score, injection keyword density---combined via weighted
+  sigmoid. Threshold at $\mu + 1.1\sigma$ of clean training scores. ML decision
+  is authoritative only at \texttt{COMMIT}; earlier actions accumulate state
+  but do not trigger block/flag.
+
+\item \textbf{LLM Verifier} ($<3\%$ of actions, uncertainty\,$>\theta_2$):
+  natural language reasoning for novel patterns outside the behavioral model.
+\end{enumerate}
+
+\paragraph{Rules-certainty veto.}
+When LocalRules score$=0$ (no deterministic violation) and ML wants to block
+with uncertainty$>0.20$, ACB-Ref downgrades block$\to$flag. Rules provide hard
+evidence---``no deterministic violation observed''---that constrains an
+uncertain probabilistic verdict. This veto is the mechanism that eliminates all
+hard FPR while preserving recall: clean sessions flagged by ML for high-value
+amounts (below the spend ceiling) are correctly routed to human review rather
+than auto-blocked.
+
+\paragraph{Observation surface.}
+ACB-Ref observes the L1 wire: typed action fields, wallet state, session history.
+It does \emph{not} observe the LLM's reasoning or text output. This is a design
+choice reflecting the separate-jurisdiction reality: L1 telemetry belongs to the
+payment middleware; L0 telemetry belongs to the agent framework. An agent builder
+combining both must provision the integration explicitly.
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{ACB: Dataset}
+\label{sec:dataset}
+
+\subsection{Synthetic Session Generation}
+\label{sec:gen}
+
+We do not use production data. The generator is parameterized from ISO~8583
+payment semantics and commerce domain knowledge.
+
+\paragraph{Persona-conditional Markov chains.}
+Three agent archetypes encode distinct behavioral grammars:
+\begin{itemize}
+\item \emph{Travel} (median \$$\approx$380, $\sigma_{\log}{=}0.72$): 45\%
+  \texttt{FIND} self-transition, \texttt{RESERVE} before \texttt{COMMIT} in
+  60\% of quotes. Models flight/hotel booking.
+\item \emph{SaaS} (median \$$\approx$85, $\sigma_{\log}{=}1.05$): 78\%
+  direct \texttt{QUOTE}$\to$\texttt{COMMIT}. Models subscription purchase.
+\item \emph{Research} (median \$$\approx$48, $\sigma_{\log}{=}0.90$): 55\%
+  \texttt{FIND} self-transition, 97\% direct quote$\to$commit. Models API
+  credit and dataset purchase.
+\end{itemize}
+
+Multiplicative Gaussian perturbation ($\sigma{=}0.05$) ensures no two sessions
+are identical. Training seed (7) and evaluation seed (42) are independent.
+These three archetypes cover the primary agentic purchasing verticals: travel booking,
+subscription software, and compute/API procurement. Future versions will extend to
+marketplace (B2C purchase flows) and healthcare (prior-authorization workflows).
+
+\paragraph{Attack realism.}
+B5 uses a prior settled session's idempotency key (format-identical to
+legitimate---detectable only via stateful registry). B7 uses one of six varied
+restricted MCC categories. B8 is bimodal: 60\% marginal overspend
+(\$3,010--\$4,500), 40\% obvious (\$4,500--\$8,000). \textbf{B7s} (MCC spoof)
+uses an allowlisted MCC code (e.g., \texttt{7372}/software) paired with a
+restricted merchant domain (e.g., \texttt{betsoftware.io}, \texttt{cryptoexchange-pro.com});
+the rule allowlist check passes because the MCC is valid, but the merchant--MCC
+pairing is anomalous. \textbf{B8s} (session aggregate) issues 4--6 COMMIT
+actions at \$600--\$1,200 each---4--200$\times$ the persona normal---keeping
+every individual transaction below the \$3,000 per-transaction ceiling and the
+session total below the \$10,000 per-day ceiling; both thresholds pass, so
+rules emit 0 blocks, but the per-commit amounts are far out-of-distribution
+for \texttt{saas}/\texttt{research} personas.
+
+\paragraph{Hard negatives.}
+\texttt{clean\_highval} generates legitimate purchases at \$1,800--\$2,800
+(travel), \$800--\$1,500 (enterprise SaaS), \$400--\$900 (GPU credits).
+These create genuine distributional overlap with B8 marginal attacks---the
+source of ML false positives and proof that the task is non-trivially hard.
+
+\subsection{Dataset Statistics}
+
+\begin{itemize}
+\item 200 clean sessions ($\approx$14\% high-value, amounts \$1,800--\$2,800)
+\item $40 \times 10 = 400$ attack sessions spanning B1--B8s (10 attack classes)
+\item Total: 600 sessions; 66.7\% attack rate (intentionally unbalanced)
+\item Actions per session: mean=3.9, std=1.7
+\item B7s/B8s verified: 0/40 caught by RulesOnly (behavioral variants, not rule-trivial)
+\item B9 defined but excluded (requires mocking post-settlement rail state)
+\end{itemize}
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Experiments}
+\label{sec:experiments}
+
+\subsection{Evaluation Protocol}
+
+A session is detected if any action triggers \texttt{block} or \texttt{flag}.
+We distinguish two false-positive types:
+\begin{itemize}
+\item \textbf{Hard FPR}: \texttt{block} on a clean session. Auto-rejection
+  requiring human override---the costly error.
+\item \textbf{EscRate}: \texttt{flag} on a clean session. Routes to human
+  review. Operationally costly but recoverable.
+\end{itemize}
+
+Primary metrics: recall, hard FPR, EscRate, F1, per-attack detection rate.
+Multi-seed aggregate results (Tab.~\ref{tab:full}) are mean$\pm$std across seeds 42--46
+over the core 8-attack benchmark (520 sessions: 200 clean + 8$\times$40 attack).
+Per-attack results (Tab.~\ref{tab:detection}) additionally report B7s and B8s at
+seed=42 only ($n{=}40$ per attack), as these are new behavioral attack classes verified
+after the multi-seed experiments were run. Seed=42 single-seed results for the core
+8 attacks are reported parenthetically.
+
+\subsection{Baselines}
+
+\paragraph{Agent reasoning layer (L0) --- not measured on ACB.}
+L0 tools (garak, promptfoo, LlamaGuard, FinHarness) operate on the agent
+reasoning layer: they observe agent text output, tool call descriptions,
+and conversation history. This layer is \emph{agentic}---it includes the full
+LLM-plus-tools stack, not just the LLM model. These tools are \emph{not
+evaluated on ACB}. ACB sessions are structured protocol streams;
+garak/promptfoo receive LLM text and would see only the \texttt{payload} field
+of each action---which carries meaningful signal only for B6 (injection).
+For B1--B5, B7--B8, the signal lives in wallet state, sequence order, and
+idempotency registries: fields these tools have no access to. Reporting
+approximated published numbers from different benchmarks on different tasks as
+if they were ACB results would be misleading; we do not do so.
+
+We measure \textbf{one} L0 ceiling: Claude Sonnet~4.6 via AWS Bedrock as a
+full-session LLM-as-judge, applied to \emph{all 10 ACB attack types}
+($n{=}20$ sessions per attack, $n{=}40$ clean; seed=42). The judge sees the
+action sequence, transaction amounts, merchant names, MCC codes, and payload
+text. It does not see wallet allowlists, spending ceilings, or the idempotency
+key registry (L1 state). This is the strongest possible L0 baseline---a
+maximally-capable LLM with full session context. Cost: \$3/1k sessions.
+
+\paragraph{Protocol layer (L1) --- measured on ACB.}
+\begin{itemize}
+\item \textbf{Schema only}: field-type validation only; no protocol ordering.
+\item \textbf{MLOnly}: behavioral ML (Markov sequence, velocity, amount, injection
+  keyword); \emph{no rules layer}. The research baseline: what ML alone achieves.
+\item \textbf{ACB-Ref} (ours): behavioral ML + deterministic rule supplement +
+  uncertainty-based veto. The contribution.
+\end{itemize}
+
+RulesOnly ($\mathcal{M}$-check + wallet arithmetic, no ML) is included as a
+structural sanity check: it confirms the rule components work in isolation. It
+is \emph{not} a research baseline --- a rule checker trivially catches B1/B7/B8
+by definition. Its numbers appear in a footnote, not in the main results.
+
+\subsection{Layer Jurisdiction}
+
+We evaluate L0 and L1 independently, and this is a deliberate methodological choice
+rather than a convenience. L0 telemetry (agent text, reasoning traces) belongs to the
+agent framework; L1 telemetry (the \texttt{ConsequentialAction} stream and wallet state)
+belongs to the payment middleware. Neither sees the other's signals by default, and we
+are aware of no deployed system that unifies them. Collapsing the two into a single
+score would therefore describe a system nobody can currently build, and would hide the
+complementarity we report in \S\ref{sec:results}. An agent builder wanting both must
+provision the integration explicitly.
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Results}
+\label{sec:results}
+
+\subsection{Per-Attack Detection Rates}
+
+Table~\ref{tab:detection} shows per-attack detection rates. The key finding is
+not the trivially-solved structural cases: \textbf{B1, B7, B8-clear are caught
+at 100\% by RulesOnly with 0\% FPR---expected from their definition, not a
+research contribution}. B7s and B8s confirm the behavioral variants are invisible
+to rules (0\% RulesOnly recall by construction). The research finding is what remains:
+\begin{itemize}
+  \item B4 (session hijack) and B5 (idempotency replay) are at 68--70\% even
+    with ACB-Ref's full cascade. Neither rules nor ML alone handles these; both
+    require stateful infrastructure not yet implemented.
+  \item B8-marginal (distributional overlap) is the reliability challenge: ML
+    reaches 72\% but with 11\% hard FPR; the rules-certainty veto eliminates
+    the hard FPR while retaining recall.
+  \item B7s (MCC spoof): MLOnly and ACB-Ref achieve 82.5\% recall. The 17.5\% gap
+    reflects cases where the MCC--merchant mismatch is subtle enough to fall
+    within the ML model's uncertainty band. No rule can close this gap---it
+    requires behavioral awareness of merchant domain semantics.
+  \item B8s (session aggregate): both MLOnly and ACB-Ref achieve 100\% recall. The
+    per-commit amount OOD signal ($4$--$200\times$ persona normal) is strong
+    enough for the amount $z$-score feature to catch all cases, even though
+    individual transactions and session totals satisfy both spending ceilings.
+  \item The full-session LLM-as-judge achieves 61\% overall recall at 0\% hard FPR.
+    It is strong on text-visible and semantically-obvious attacks: B2 (velocity, 100\%),
+    B6 (injection, 100\%), B8s (session aggregate, 100\%), and B7s (MCC spoof, 95\%---the
+    judge recognizes merchant-MCC semantic mismatch from domain knowledge). It fails on
+    attacks requiring protocol state: B4 (10\%, no cross-session identity), B5 (20\%, no
+    key registry), B8 (25\%, no spending ceiling). At \$3/1k, it is 300$\times$ more
+    expensive than ACB-Ref at $<$\$0.01/1k; ACB-Ref surpasses it by 27 recall percentage points.
+\end{itemize}
+
+\begin{table}[tb]
+\caption{Per-attack detection rates on ACB (seed=42, 600 sessions, 10 attack classes). All
+  rows are \emph{measured on ACB}. L0 tools (garak, promptfoo, Llama Guard) are excluded: their published numbers come from different tasks and cannot be
+  compared here. The LLM-judge row is the full-session judge evaluated on all 10 attack types ($n{=}20$ per attack, measured). Hard behavioral targets are B2--B6, B7s, and B8-marginal/B8s;
+  B1/B7/B8-clear are structural sanity checks (see footnote). RulesOnly is omitted
+  from the main table: catching rule-defined violations with a
+  rule checker is expected, not a finding.$^\star$}
+\label{tab:detection}
+\centering
+\footnotesize
+\setlength{\tabcolsep}{2pt}
+\begin{tabular}{l@{\hspace{4pt}}ccccccccccc}
+\toprule
+ & \multicolumn{10}{c}{Detection rate by attack class (hard behavioral targets in \textbf{bold})} & \\
+\cmidrule(lr){2-11}
+Method (Layer) & B1 & \textbf{B2} & \textbf{B3} & \textbf{B4} & \textbf{B5} & \textbf{B6} & B7 & \textbf{B7s} & B8 & \textbf{B8s} & Hard FPR \\
+\midrule
+\multicolumn{12}{l}{\textit{Agent reasoning layer (L0) --- full-session LLM judge, measured on all 10 attacks}} \\
+Full-session judge Sonnet (L0) & 30\% & \textbf{100\%} & 70\% & 10\% & 20\% & \textbf{100\%} & 60\% & \textbf{95\%} & 25\% & \textbf{100\%} & \textbf{0\%} \\
+\midrule
+\multicolumn{12}{l}{\textit{Protocol layer (L1) --- measured on ACB}} \\
+Schema only (L1)      & 0\%  & 0\%    & 0\%   & 0\%  & 0\%  & 0\%  & 0\%  & 0\%  & 0\%  & 0\%  & 0\% \\
+MLOnly (L1)           & 100\%& \textbf{100\%}& 60\%  & 68\% & 70\% & 70\% & 57\% & \textbf{82.5\%}& 72\% & \textbf{100\%}& 11.0\% \\
+\textbf{ACB-Ref (L1, ours)} & \textbf{100\%}& \textbf{100\%}& \textbf{100\%}& 68\% & 70\% & 70\% & \textbf{100\%}& \textbf{82.5\%}& \textbf{100\%}& \textbf{100\%}& \textbf{0.0\%} \\
+\bottomrule
+\multicolumn{12}{p{14cm}}{\footnotesize$^\star$RulesOnly (L1): B1=38\%, B2=0\%, B3=92\%, B4=0\%, B5=0\%, B6=0\%, B7=100\%, B7s=0\%, B8=100\%, B8s=0\%, Hard FPR=0\%. Included as a structural sanity check only. 100\% on B7/B8 is expected by rule definition; 0\% on B7s/B8s confirms the behavioral variants are invisible to rules. Not a research baseline.}
+\end{tabular}
+\end{table}
+
+\subsection{Neither Observation Surface Subsumes the Other}
+
+Our measured L0 ceiling (Claude Sonnet~4.6 full-session judge, all 10 attacks) reaches 61.0\%
+recall at 0\% hard FPR. What it catches is governed entirely by observation surface: attacks
+carrying semantic text signal score high (B6 100\%, B2 100\%, B7s 95\%, B8s 100\%) because the
+judge can reason about MCC--merchant mismatch, velocity, and aggregate anomaly from the session
+description, while attacks needing protocol state collapse (B4 10\%, B5 20\%, B8 25\%) because
+wallet allowlists, spending ceilings, and the settled-key registry are simply not present at
+L0. No amount of model scaling recovers information the surface does not carry.
+
+Because every method in Table~\ref{tab:detection} is scored on identical sessions, this
+becomes a measurable claim rather than an argument. The result is a double dissociation. The
+L0 judge \emph{strictly beats} our L1 cascade on B6 (100\% vs.\ 70\%) and B7s (95\% vs.\
+82.5\%). The L1 cascade strictly beats L0 on six classes---B1, B3, B4, B5, B7, B8---by margins
+up to 75 points. Averaged over the ten classes L0 reaches 61.0\% and L1 89.0\%, but the
+\emph{per-attack maximum} is 93.3\%, above either. No single surface suffices, and no deployed
+system spans both: L0 telemetry belongs to the agent framework, L1 telemetry to the payment
+middleware. We therefore report the layers separately rather than collapsing them, and treat
+93.3\% as an oracle upper bound a cross-layer integration could target---not a result we claim.
+
+\subsection{Overall Results}
+
+Table~\ref{tab:full} compares the strongest L0 system (LLM-judge) and the strongest
+single-tier L1 system (MLOnly) against ACB-Ref. RulesOnly is excluded for the reason given
+above: a rule checker scoring well on rule-defined violations is a sanity check, not a
+finding. The comparison that matters is MLOnly vs.\ ACB-Ref.
+
+\begin{table}[tb]
+\caption{ACB aggregate results: mean $\pm$ std across seeds 42--46 over the core
+  8-attack benchmark (520 sessions); per-attack seed=42 rates are in Tab.~\ref{tab:detection}. ACB-Ref and MLOnly have
+  \emph{identical total FPR} ($\approx$56\%): the rules-certainty veto converts all
+  auto-blocks to reviewable flags without changing the total review queue size.
+  The $\Delta$ over MLOnly and over the L0 ceiling is the finding.
+  Full-session LLM-judge: 61\% recall, 0\% hard FPR, \$3/1k (measured, seed=42).}
+\label{tab:full}
+\centering
+\footnotesize
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{lcccccc}
+\toprule
+Method & F1 & Prec & Recall & Hard FPR & EscRate & \$/1k \\
+\midrule
+Schema only & 0.000 & --- & 0.000 & 0.000 & 0.000 & $<$\$0.01 \\
+Full-session LLM-judge (L0) & n/a & n/a & 0.610 & 0.000 & 0.000 & \$3.00 \\[2pt]
+MLOnly (L1) & $0.712{\pm}0.012$ & $0.618{\pm}0.010$ & $0.740{\pm}0.021$ & $0.090{\pm}0.028$ & $0.504{\pm}0.034$ & $<$\$0.01  \\
+\textbf{ACB-Ref (L1, ours)} & $\mathbf{0.792{\pm}0.006}$ & $0.664{\pm}0.007$ & $\mathbf{0.880{\pm}0.009}$ & $\mathbf{0.000{\pm}0.000}$ & $0.594{\pm}0.028$ & $<$\$0.01  \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Where the gain comes from, and what it costs.}
+ACB-Ref and MLOnly produce \emph{identical total FPR} at every seed. At seed=42 MLOnly has 22
+hard-blocks plus 90 flags ($112/200$, 56.0\%) and ACB-Ref has 0 hard-blocks plus 112 flags
+(also 56.0\%): the rules-certainty veto converts every auto-block into a reviewable flag
+without changing the review queue, since LocalRules scoring $0$ below the \$3,000 ceiling is
+positive evidence of no deterministic violation. MLOnly's 11.0\% hard FPR comes from the
+log-amount overlap between high-value travel (\$1,800--\$2,800) and marginal B8 overspend
+(\$3,010--\$4,500); RulesOnly avoids it entirely but pays 58.8\% FNR, since B2/B4/B5/B6 carry
+no signal a rule can read. So ACB-Ref's F1 gain over MLOnly is purely recall, and its
+operational benefit is the \textbf{elimination of auto-blocks} rather than less review. The
+56\% EscRate is the price: those sessions cannot be auto-approved without losing B8 recall,
+though a reviewer clears a soft flag in seconds against the irreversibility of a missed
+overspend, and per-persona thresholds should reduce it. Errors are at least well-signposted
+--- all 37 missed frauds fall in the mid-uncertainty bucket and all 112 false positives in
+the high-uncertainty bucket, so hard cases are marked uncertain rather than confidently
+mislabeled.
+
+\subsection{External Validation and Open Gaps}
+\label{sec:cross_bench}
+\label{sec:gaps}
+
+Two external checks guard against the benchmark being self-confirming. On \textbf{AgentDojo},
+we ran ACB-Ref's B6 scanner unchanged over the eight canonical Banking injection templates
+(\texttt{important\_instructions})~\cite{agentdojo}: 8/8 detected, 0/10 false positives on
+clean metadata, so the injection class transfers to templates we did not write. On
+\textbf{$\tau$-bench}, mapping the 115 retail trajectories~\cite{taubench} onto ACB action
+types, 92.2\% violate the strict automaton $\mathcal{M}$ --- scope mismatch rather than
+over-flagging, since $\tau$-bench covers post-purchase servicing (exchange, return, cancel)
+rather than purchase flows. Extending to $\mathcal{M}'$ with FIND$\to$COMMIT for service
+operations drops this to 13.9\%, locating ACB's boundary precisely: it models purchase-side
+commerce, not post-purchase servicing.
+
+The gaps we do not close are as follows. \textbf{B4 (68\%)} needs a persistent cross-session
+agent-ID registry and \textbf{B5 (70\%)} a stateful settled-key registry; we rely on
+correlated ML signal for both. \textbf{B7s (82.5\%)} leaves MCC--merchant mismatch inside the
+model's uncertainty band, needing merchant-domain knowledge unavailable at L1.
+\textbf{EscRate (56\%)} needs per-persona amount thresholds to reduce without costing B8
+recall. \textbf{B9 (revert-grant)} is defined but excluded, requiring post-settlement rail
+state. Finally, B7s/B8s show behavioral variants of rule-trivial attacks shift the problem
+substantially (rules 0\%, ACB-Ref 82.5\%); a planned v2 adds MCC aliasing, near-valid grammar
+sequences, and boundary-straddle sessions so that no method saturates any class.
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Conclusion}
+\label{sec:conclusion}
+
+Structural violations fall to deterministic rules at 0\% FPR and need no benchmark. ACB
+targets the hard part---behavioral fraud that is invisible to reasoning-layer tools and
+genuinely ambiguous against legitimate high-value traffic---and scores both defensive layers
+on identical sessions. The central finding is that they are complementary rather than
+ordered: L0 reaches 61.0\% and ACB-Ref 89.0\%, both at 0\% hard FPR, yet L0 strictly wins on
+B6 and B7s while L1 wins on six classes, and the per-attack maximum of 93.3\% exceeds either.
+Instrumenting one layer leaves attacks the other would have caught, and no deployed system
+spans both. Generator, verifiers, and harness are released so the gaps above can be attacked
+directly.
+
+\begin{thebibliography}{99}
+\small
+
+\bibitem{garak} Derczynski, L., Galinkin, E., Martin, J., Majumdar, S., \& Inie, N.
+``garak: A Framework for Security Probing Large Language Models.'' \emph{arXiv:2406.11036}, 2024.
+
+\bibitem{promptfoo} promptfoo contributors. ``promptfoo: Open-source LLM evaluation and
+red-teaming framework.'' \url{https://github.com/promptfoo/promptfoo}, accessed 2026-09-06.
+
+\bibitem{llamaguard} Inan, H., Upasani, K., Chi, J., Rungta, R., Iyer, K., Mao, Y.,
+Tontchev, M., Hu, Q., Fuller, B., Testuggine, D., \& Khabsa, M. ``Llama Guard: LLM-based
+Input-Output Safeguard for Human-AI Conversations.'' \emph{arXiv:2312.06674}, 2023.
+
+\bibitem{finharness} Jia, H., Liu, Y., Chong, B., Yang, Y., Chen, Y., Liang, J., Li, Q.,
+Lu, H., Xu, K., Zheng, H., Zhang, C., Peng, H., \& Yu, P.\ S. ``FinHarness: An Inline
+Lifecycle Safety Harness for Finance LLM Agents.'' \emph{arXiv:2605.27333}, 2026.
+
+\bibitem{x402} Reppel, E., Caspers, R., Leffew, K., Organ, D., Kim, D., \& Dalal, N.
+``x402: An Open Standard for Internet-Native Payments.'' Coinbase Developer Platform
+whitepaper, 2025. \url{https://www.x402.org/x402-whitepaper.pdf}
+
+\bibitem{x402attacks} Li, Z., Wang, Q., \& Wang, Z. ``Five Attacks on x402 Agentic Payment
+Protocol.'' \emph{arXiv:2605.11781}, 2026.
+
+\bibitem{agentdojo} Debenedetti, E., Zhang, J., Balunovi\'{c}, M., Beurer-Kellner, L.,
+Fischer, M., \& Tram\`{e}r, F. ``AgentDojo: A Dynamic Environment to Evaluate Prompt
+Injection Attacks and Defenses for LLM Agents.'' \emph{Advances in Neural Information
+Processing Systems 37 (NeurIPS 2024), Datasets and Benchmarks Track}; \emph{arXiv:2406.13352}.
+
+\bibitem{iso8583} ISO 8583:2023. \emph{Financial-transaction-card-originated messages ---
+Interchange message specifications}, 3rd ed. International Organization for Standardization, 2023.
+
+\bibitem{stripe} Stripe Inc. ``Payment Intents API reference.''
+\url{https://docs.stripe.com/api/payment_intents}, accessed 2026-09-06.
+
+\bibitem{taubench} Yao, S., Shinn, N., Razavi, P., \& Narasimhan, K. ``$\tau$-bench: A
+Benchmark for Tool-Agent-User Interaction in Real-World Domains.'' \emph{arXiv:2406.12045}, 2024.
+
+\bibitem{agentharm} Andriushchenko, M., Souly, A., Dziemian, M., Duenas, D., Lin, M.,
+Wang, J., Hendrycks, D., Zou, A., Kolter, Z., Fredrikson, M., Winsor, E., Wynne, J.,
+Gal, Y., \& Davies, X. ``AgentHarm: A Benchmark for Measuring Harmfulness of LLM Agents.''
+\emph{ICLR 2025}; \emph{arXiv:2410.09024}.
+
+\bibitem{pozzolo2015} Dal Pozzolo, A., Caelen, O., Johnson, R.\ A., \& Bontempi, G.
+``Calibrating Probability with Undersampling for Unbalanced Classification.''
+\emph{IEEE Symposium Series on Computational Intelligence (SSCI)}, 2015, pp.~159--166.
+
+\end{thebibliography}
+
+\begin{ack}
+This work was conducted without external funding. Competing interests: none.
+\end{ack}
+
+\section*{Reproducibility Statement}
+
+All results are deterministic given \texttt{--seed}. Generator
+(\texttt{benchmark/synthetic.py}, including B7s/B8s behavioral variants),
+verifiers (\texttt{benchmark/acp\_baselines.py}, \texttt{benchmark/behavioral\_ml.py}),
+and harness (\texttt{benchmark/run\_experiment.py}) are released as open-source.
+Replication: \texttt{python -m benchmark.run\_experiment --seed 42 --no-sota}. No GPU required;
+$<$30s per seed on CPU. Results saved to \texttt{benchmark/results/acp\_benchmark.json}.
+Full-session LLM-as-judge replication: \texttt{python -m benchmark.session\_fraud\_judge
+--all-attacks --seed 42 --n 20} (requires AWS Bedrock; $\approx$7 min, \$0.60).
+
+\section*{Broader Impact}
+
+ACB targets the protocol layer between LLM reasoning and payment rails.
+Benefits: better-defended agentic payment pipelines; a shared benchmark for
+protocol-layer safety research; a vocabulary for previously underdescribed
+threats. Risks: the attack taxonomy could inform adversarial probing; mitigated
+by releasing the verifier alongside the taxonomy and withholding working exploit
+code. The multi-class structure (ten orthogonal attacks spanning rule-trivial,
+behavioral, stateful, and distributional challenge classes) makes benchmark
+gaming substantially harder than single-surface attacks.
+
+
+\appendix
+
+\section{Benchmark Generator Details}
+
+The full generator is available at \url{https://github.com/[anonymous]/acb}. Key implementation notes:
+
+\paragraph{B5 idempotency key format.} Attack keys use the format \texttt{sess-clean-NNNN:act:2} where \texttt{NNNN} is a prior settled session index. This is format-identical to legitimate keys---the only detection mechanism is a stateful settled-key registry, which the current rules verifier does not maintain cross-session.
+
+\paragraph{B7 MCC categories.} Six varied restricted categories: gambling (7995), pharmacy (5912), liquor store (5921), matchmaking app (7273), wellness spa (7297), currency exchange (6051). Using a single hardcoded merchant would make the attack trivially detectable by keyword match.
+
+\paragraph{B8 bimodal distribution.} 60\% of B8 sessions sample from $\text{Uniform}(\$3{,}010, \$4{,}500)$---marginal overspend above the \$3,000 ceiling. 40\% from $\text{Uniform}(\$4{,}500, \$8{,}000)$---obvious overspend. The marginal fraction creates genuine overlap with high-value clean sessions.
+
+\paragraph{Reproducibility.} Run: \texttt{python -m benchmark.run\_experiment --seed 42 --no-sota}
+
+\input{checklist_aiwild}
+
+\end{document}

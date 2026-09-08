@@ -1,0 +1,123 @@
+\relax 
+\providecommand\hyper@newdestlabel[2]{}
+\providecommand\HyField@AuxAddToFields[1]{}
+\providecommand\HyField@AuxAddToCoFields[2]{}
+\citation{agentdojo,finharness}
+\@writefile{toc}{\contentsline {section}{\numberline {1}Introduction}{1}{section.1}\protected@file@percent }
+\newlabel{sec:intro}{{1}{1}{Introduction}{section.1}{}}
+\@writefile{toc}{\contentsline {paragraph}{The gap.}{1}{section*.1}\protected@file@percent }
+\citation{agentdojo}
+\citation{finharness}
+\citation{agentharm}
+\citation{garak}
+\citation{promptfoo}
+\citation{llamaguard4}
+\citation{pozzolo2015}
+\citation{iso8583}
+\citation{x402}
+\def\@LN@column{1}
+\@writefile{toc}{\contentsline {paragraph}{This paper.}{2}{section*.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {2}Related Work}{2}{section.2}\protected@file@percent }
+\newlabel{sec:related}{{2}{2}{Related Work}{section.2}{}}
+\@writefile{toc}{\contentsline {paragraph}{LLM agent safety benchmarks.}{2}{section*.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{LLM safety classifiers.}{2}{section*.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Traditional payment fraud detection.}{2}{section*.5}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Payment protocol security.}{2}{section*.6}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Gap.}{2}{section*.7}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {3}Problem Formulation}{2}{section.3}\protected@file@percent }
+\newlabel{sec:formulation}{{3}{2}{Problem Formulation}{section.3}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.1}Fraud Origination in Agentic Commerce}{2}{subsection.3.1}\protected@file@percent }
+\citation{iso8583}
+\citation{x402}
+\citation{stripe}
+\@writefile{lot}{\contentsline {table}{\numberline {1}{\ignorespaces Fraud origination in agentic commerce. This paper focuses on the L1 rows (shaded): protocol-wire violations and wallet/authorization attacks that leave no reasoning-layer signal.}}{3}{table.1}\protected@file@percent }
+\newlabel{tab:origins}{{1}{3}{Fraud origination in agentic commerce. This paper focuses on the L1 rows (shaded): protocol-wire violations and wallet/authorization attacks that leave no reasoning-layer signal}{table.1}{}}
+\def\@LN@column{1}
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.2}Commerce State Automaton}{3}{subsection.3.2}\protected@file@percent }
+\newlabel{sec:automaton}{{3.2}{3}{Commerce State Automaton}{subsection.3.2}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {2}{\ignorespaces Valid transitions in $\mathcal  {M}$ with payment protocol grounding.}}{3}{table.2}\protected@file@percent }
+\newlabel{tab:automaton}{{2}{3}{Valid transitions in $\mathcal {M}$ with payment protocol grounding}{table.2}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.3}Fraud Detection Problem}{3}{subsection.3.3}\protected@file@percent }
+\def\@LN@column{1}
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.4}Attack Taxonomy}{4}{subsection.3.4}\protected@file@percent }
+\newlabel{sec:taxonomy}{{3.4}{4}{Attack Taxonomy}{subsection.3.4}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {3}{\ignorespaces L1 attack taxonomy. B6 is the only attack with a reasoning-layer signal; all others require protocol-state access to detect.}}{4}{table.3}\protected@file@percent }
+\newlabel{tab:taxonomy}{{3}{4}{L1 attack taxonomy. B6 is the only attack with a reasoning-layer signal; all others require protocol-state access to detect}{table.3}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {4}ACP: The Reference L1 Detector}{4}{section.4}\protected@file@percent }
+\newlabel{sec:method}{{4}{4}{ACP: The Reference L1 Detector}{section.4}{}}
+\@writefile{toc}{\contentsline {paragraph}{Rules-certainty veto.}{4}{section*.8}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Observation surface.}{4}{section*.9}\protected@file@percent }
+\def\@LN@column{1}
+\@writefile{toc}{\contentsline {section}{\numberline {5}ACP-Bench: Dataset}{5}{section.5}\protected@file@percent }
+\newlabel{sec:dataset}{{5}{5}{ACP-Bench: Dataset}{section.5}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.1}Synthetic Session Generation}{5}{subsection.5.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Persona-conditional Markov chains.}{5}{section*.10}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Attack realism.}{5}{section*.11}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Hard negatives.}{5}{section*.12}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.2}Dataset Statistics}{5}{subsection.5.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {6}Experiments}{5}{section.6}\protected@file@percent }
+\newlabel{sec:experiments}{{6}{5}{Experiments}{section.6}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {6.1}Evaluation Protocol}{5}{subsection.6.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {6.2}Baselines}{5}{subsection.6.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{L0 baselines (text-observable surface).}{5}{section*.13}\protected@file@percent }
+\citation{garak}
+\citation{promptfoo}
+\citation{llamaguard4}
+\citation{finharness}
+\citation{llamaguard4}
+\def\@LN@column{1}
+\@writefile{toc}{\contentsline {paragraph}{L1 baselines (protocol-observable surface).}{6}{section*.14}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {6.3}L0 and L1 Are Separate Jurisdictions}{6}{subsection.6.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {7}Results}{6}{section.7}\protected@file@percent }
+\newlabel{sec:results}{{7}{6}{Results}{section.7}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.1}Observation Surface Constrains L0 Coverage}{6}{subsection.7.1}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {4}{\ignorespaces Tools by layer and observation surface. \emph  {Measured} = evaluated on ACP-Bench. \emph  {Published} = from cited papers. \emph  {Architectural} = follows from observation surface (signal does not exist at that layer).}}{6}{table.4}\protected@file@percent }
+\newlabel{tab:layers}{{4}{6}{Tools by layer and observation surface. \emph {Measured} = evaluated on ACP-Bench. \emph {Published} = from cited papers. \emph {Architectural} = follows from observation surface (signal does not exist at that layer)}{table.4}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.2}Per-Attack Detection Rates}{6}{subsection.7.2}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {5}{\ignorespaces Per-attack detection rates. \textbf  {L0 (published):} B1--B5, B7--B8 rates are architectural zeros (tools have no access to protocol state). B6 rates are from published benchmarks on B6-equivalent injection tasks---\emph  {not} measured on ACP-Bench. FinHarness non-B6 entries ($\approx $30\%, $\approx $20\%, $\approx $45\%) are architectural upper-bound estimates extrapolated from FinVault task overlap; treat as indicative only. \textbf  {L1 (measured):} ACP-Bench, seed=42.}}{7}{table.5}\protected@file@percent }
+\newlabel{tab:detection}{{5}{7}{Per-attack detection rates. \textbf {L0 (published):} B1--B5, B7--B8 rates are architectural zeros (tools have no access to protocol state). B6 rates are from published benchmarks on B6-equivalent injection tasks---\emph {not} measured on ACP-Bench. FinHarness non-B6 entries ($\approx $30\%, $\approx $20\%, $\approx $45\%) are architectural upper-bound estimates extrapolated from FinVault task overlap; treat as indicative only. \textbf {L1 (measured):} ACP-Bench, seed=42}{table.5}{}}
+\def\@LN@column{1}
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.3}Overall Results: Rules and ML Are Complementary}{7}{subsection.7.3}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {6}{\ignorespaces ACP-Bench results: mean $\pm $ std across seeds 42--46 (520 sessions). Single-seed (seed=42) in parentheses. ACP and MLOnly have \emph  {identical total FPR} ($\approx $56\%, Hard FPR + EscRate): ACP eliminates auto-blocks while keeping the same human-review queue size.}}{7}{table.6}\protected@file@percent }
+\newlabel{tab:full}{{6}{7}{ACP-Bench results: mean $\pm $ std across seeds 42--46 (520 sessions). Single-seed (seed=42) in parentheses. ACP and MLOnly have \emph {identical total FPR} ($\approx $56\%, Hard FPR + EscRate): ACP eliminates auto-blocks while keeping the same human-review queue size}{table.6}{}}
+\@writefile{toc}{\contentsline {paragraph}{Total false-positive equivalence.}{7}{section*.15}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Mechanistic analysis.}{7}{section*.16}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Uncertainty calibration.}{7}{section*.17}\protected@file@percent }
+\citation{agentdojo}
+\citation{taubench}
+\def\@LN@column{1}
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.4}Cross-Benchmark Validation}{8}{subsection.7.4}\protected@file@percent }
+\newlabel{sec:cross_bench}{{7.4}{8}{Cross-Benchmark Validation}{subsection.7.4}{}}
+\@writefile{toc}{\contentsline {paragraph}{AgentDojo B6 cross-validation.}{8}{section*.18}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{$\tau $-bench scope analysis.}{8}{section*.19}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.5}Open Gaps}{8}{subsection.7.5}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {8}Conclusion}{8}{section.8}\protected@file@percent }
+\newlabel{sec:conclusion}{{8}{8}{Conclusion}{section.8}{}}
+\bibcite{garak}{{1}{}{{}}{{}}}
+\bibcite{promptfoo}{{2}{}{{}}{{}}}
+\bibcite{llamaguard4}{{3}{}{{}}{{}}}
+\bibcite{finharness}{{4}{}{{}}{{}}}
+\bibcite{x402}{{5}{}{{}}{{}}}
+\bibcite{agentdojo}{{6}{}{{}}{{}}}
+\bibcite{iso8583}{{7}{}{{}}{{}}}
+\bibcite{stripe}{{8}{}{{}}{{}}}
+\bibcite{taubench}{{9}{}{{}}{{}}}
+\bibcite{agentharm}{{10}{}{{}}{{}}}
+\bibcite{pozzolo2015}{{11}{}{{}}{{}}}
+\def\@LN@column{1}
+\@writefile{toc}{\contentsline {section}{\numberline {A}Benchmark Generator Details}{9}{appendix.A}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{B5 idempotency key format.}{9}{section*.23}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{B7 MCC categories.}{9}{section*.24}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{B8 bimodal distribution.}{9}{section*.25}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Reproducibility.}{9}{section*.26}\protected@file@percent }
+\def\@LN@column{1}
+\citation{garak}
+\citation{promptfoo}
+\citation{llamaguard4}
+\citation{finharness}
+\citation{x402}
+\citation{stripe}
+\def\@LN@column{1}
+\providecommand\NAT@force@numbers{}\NAT@force@numbers
+\def\@LN@column{1}
+\gdef \@abspage@last{12}

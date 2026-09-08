@@ -1,0 +1,111 @@
+\relax 
+\providecommand\hyper@newdestlabel[2]{}
+\providecommand\HyField@AuxAddToFields[1]{}
+\providecommand\HyField@AuxAddToCoFields[2]{}
+\citation{acpbench}
+\citation{saga}
+\citation{2pc}
+\citation{iso8583}
+\citation{ct}
+\@writefile{toc}{\contentsline {section}{\numberline {1}Introduction}{1}{section.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Five transaction properties for agentic commerce.}{1}{section*.1}\protected@file@percent }
+\def\@LN@column{1}
+\@writefile{toc}{\contentsline {paragraph}{The framework gap.}{2}{section*.2}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {1}{\ignorespaces Five transaction properties across orchestration frameworks. CAO provides all five; existing frameworks provide none (partial entries reflect syntax-level checks that do not enforce the underlying semantic property).}}{2}{table.1}\protected@file@percent }
+\newlabel{tab:framework_compare}{{1}{2}{Five transaction properties across orchestration frameworks. CAO provides all five; existing frameworks provide none (partial entries reflect syntax-level checks that do not enforce the underlying semantic property)}{table.1}{}}
+\@writefile{toc}{\contentsline {paragraph}{The three-layer stack.}{2}{section*.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Contributions.}{2}{section*.4}\protected@file@percent }
+\citation{react}
+\citation{langgraph}
+\citation{pregel}
+\citation{autogen}
+\citation{openai_agents}
+\citation{iso8583}
+\citation{x402}
+\citation{2pc}
+\citation{saga}
+\citation{crdts}
+\def\@LN@column{1}
+\@writefile{toc}{\contentsline {section}{\numberline {2}Background and Related Work}{3}{section.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.1}LLM Agent Orchestration Frameworks}{3}{subsection.2.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.2}Payment Protocol Foundations}{3}{subsection.2.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.3}Distributed Transaction Theory}{3}{subsection.2.3}\protected@file@percent }
+\def\@LN@column{1}
+\@writefile{toc}{\contentsline {section}{\numberline {3}Commerce-Native Agentic Orchestration (CAO)}{4}{section.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.1}Execution Property: Commerce State Automaton}{4}{subsection.3.1}\protected@file@percent }
+\newlabel{sec:automaton}{{3.1}{4}{Execution Property: Commerce State Automaton}{subsection.3.1}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {2}{\ignorespaces Valid transitions in $\mathcal  {M}$ with ISO~8583, x402, and Stripe PaymentIntent grounding.}}{4}{table.2}\protected@file@percent }
+\newlabel{tab:transitions}{{2}{4}{Valid transitions in $\mathcal {M}$ with ISO~8583, x402, and Stripe PaymentIntent grounding}{table.2}{}}
+\newlabel{prop:decidability}{{1}{4}{Decidability and complexity of protocol validity}{proposition.1}{}}
+\def\@LN@column{1}
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.2}Verification and Effectiveness: Commerce-Typed State}{5}{subsection.3.2}\protected@file@percent }
+\newlabel{sec:cts}{{3.2}{5}{Verification and Effectiveness: Commerce-Typed State}{subsection.3.2}{}}
+\newlabel{thm:monotone}{{3}{5}{Safety monotonicity}{proposition.3}{}}
+\def\@LN@column{1}
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.3}Effectiveness: Structural Atomic Gate}{6}{subsection.3.3}\protected@file@percent }
+\newlabel{sec:gate}{{3.3}{6}{Effectiveness: Structural Atomic Gate}{subsection.3.3}{}}
+\newlabel{prop:interrupt}{{5}{6}{\texttt {interrupt\_before} addresses workflow coordination, not protocol validity}{proposition.5}{}}
+\citation{ct}
+\citation{selective}
+\citation{conformal}
+\def\@LN@column{1}
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.4}Atomicity: Risk-Adjusted Commitment Protocols}{7}{subsection.3.4}\protected@file@percent }
+\newlabel{sec:tiers}{{3.4}{7}{Atomicity: Risk-Adjusted Commitment Protocols}{subsection.3.4}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {3}{\ignorespaces Ceremony tiers: risk-adjusted commitment protocols. $L_0$--$L_2$ implemented; $L_3$ spec only (see \S  \ref {sec:discussion_limits}).}}{7}{table.3}\protected@file@percent }
+\newlabel{tab:tiers}{{3}{7}{Ceremony tiers: risk-adjusted commitment protocols. $L_0$--$L_2$ implemented; $L_3$ spec only (see \S \ref {sec:discussion_limits})}{table.3}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.5}Traceability: Hash-Chained CARLog}{7}{subsection.3.5}\protected@file@percent }
+\newlabel{sec:carlog}{{3.5}{7}{Traceability: Hash-Chained CARLog}{subsection.3.5}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.6}Verification Depth: Confidence Cascade}{7}{subsection.3.6}\protected@file@percent }
+\newlabel{sec:cascade}{{3.6}{7}{Verification Depth: Confidence Cascade}{subsection.3.6}{}}
+\citation{acpbench}
+\citation{acpbench}
+\def\@LN@column{1}
+\@writefile{toc}{\contentsline {section}{\numberline {4}Experiments}{8}{section.4}\protected@file@percent }
+\newlabel{sec:experiments}{{4}{8}{Experiments}{section.4}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.1}Property Satisfaction}{8}{subsection.4.1}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {4}{\ignorespaces Property satisfaction across frameworks. Execution Correctness and Traceability are measured over 900 sessions; Atomicity and Verification are architectural guarantees. Schema validation enforces a syntax check (Effectiveness = syntax-only) but does not simulate $\mathcal  {M}$ (Execution Correctness = 0\%) and produces no audit log (Traceability = 0\%).}}{8}{table.4}\protected@file@percent }
+\newlabel{tab:property_satisfaction}{{4}{8}{Property satisfaction across frameworks. Execution Correctness and Traceability are measured over 900 sessions; Atomicity and Verification are architectural guarantees. Schema validation enforces a syntax check (Effectiveness = syntax-only) but does not simulate $\mathcal {M}$ (Execution Correctness = 0\%) and produces no audit log (Traceability = 0\%)}{table.4}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.2}Formal Property Verification}{8}{subsection.4.2}\protected@file@percent }
+\newlabel{sec:formal_props}{{4.2}{8}{Formal Property Verification}{subsection.4.2}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.3}Fraud Detection as Measured Consequence}{8}{subsection.4.3}\protected@file@percent }
+\citation{conformal}
+\citation{selective}
+\@writefile{lot}{\contentsline {table}{\numberline {5}{\ignorespaces ACP-Bench results: mean $\pm $ std across seeds 42--46 (900 sessions total); single-seed reference (seed=42) in parentheses. Protocol attacks = B1, B7, B8 (pure state-machine and field violations caught by $\mathcal  {M}$-checking). \textit  {Total FPR} (block+flag on clean) is identical for ACP and MLOnly at every seed---the operational benefit is redistribution of FP type, not reduction of total FP count.}}{9}{table.5}\protected@file@percent }
+\newlabel{tab:results}{{5}{9}{ACP-Bench results: mean $\pm $ std across seeds 42--46 (900 sessions total); single-seed reference (seed=42) in parentheses. Protocol attacks = B1, B7, B8 (pure state-machine and field violations caught by $\mathcal {M}$-checking). \textit {Total FPR} (block+flag on clean) is identical for ACP and MLOnly at every seed---the operational benefit is redistribution of FP type, not reduction of total FP count}{table.5}{}}
+\def\@LN@column{1}
+\@writefile{toc}{\contentsline {section}{\numberline {5}Discussion}{9}{section.5}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.1}Theoretical Relationship to Prior Work}{9}{subsection.5.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.2}Limitations}{9}{subsection.5.2}\protected@file@percent }
+\newlabel{sec:discussion_limits}{{5.2}{9}{Limitations}{subsection.5.2}{}}
+\citation{acpbench}
+\bibcite{saga}{{1}{}{{}}{{}}}
+\def\@LN@column{1}
+\@writefile{toc}{\contentsline {section}{\numberline {6}Conclusion}{10}{section.6}\protected@file@percent }
+\bibcite{2pc}{{2}{}{{}}{{}}}
+\bibcite{iso8583}{{3}{}{{}}{{}}}
+\bibcite{ct}{{4}{}{{}}{{}}}
+\bibcite{react}{{5}{}{{}}{{}}}
+\bibcite{langgraph}{{6}{}{{}}{{}}}
+\bibcite{pregel}{{7}{}{{}}{{}}}
+\bibcite{autogen}{{8}{}{{}}{{}}}
+\bibcite{openai_agents}{{9}{}{{}}{{}}}
+\bibcite{x402}{{10}{}{{}}{{}}}
+\bibcite{crdts}{{11}{}{{}}{{}}}
+\bibcite{selective}{{12}{}{{}}{{}}}
+\bibcite{conformal}{{13}{}{{}}{{}}}
+\bibcite{stripe}{{14}{}{{}}{{}}}
+\bibcite{acpbench}{{15}{}{{}}{{}}}
+\citation{crdts}
+\def\@LN@column{1}
+\@writefile{toc}{\contentsline {section}{\numberline {A}Formal Proofs}{11}{appendix.A}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {A.1}Proof of Proposition~3.1 (CTS channels are CRDTs)}{11}{subsection.A.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {A.2}Proof of Proposition~3.3 (Rules-Certainty Veto)}{11}{subsection.A.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {B}Extensions}{11}{appendix.B}\protected@file@percent }
+\def\@LN@column{1}
+\def\@LN@column{1}
+\citation{langgraph}
+\citation{x402}
+\citation{stripe}
+\providecommand\NAT@force@numbers{}\NAT@force@numbers
+\def\@LN@column{1}
+\gdef \@abspage@last{14}
