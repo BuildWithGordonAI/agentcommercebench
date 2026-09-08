@@ -1,0 +1,198 @@
+"""
+D8 — the reasoning layer.
+
+Every other detector reads the wire: what the agent *did*. This one reads what the agent
+*thought*, which is only available when the integration can see the model — an SDK hook
+wrapping the model client, or an observability feed. MCP and rail integrations never carry
+it, and this detector correctly scores 0 when reasoning is absent.
+
+An important constraint on how it can be used: observability platforms are post-hoc sinks
+with a 1-30s floor, so a verdict from this detector arrives *after* the action it describes.
+It cannot gate a payment. It can score, train, and justify ending a session or revoking a
+credential before the next action.
+
+What it catches that the wire cannot
+------------------------------------
+Three of these four are invisible at L1 *in principle*, not just in practice:
+
+  D8a  injected instruction, with provenance — the wire sees text; only here can you tell
+       whether it arrived from the user (allowed to instruct) or from a tool result
+       (never allowed to instruct)
+  D8b  evasion planning — "I'll split this to stay under the limit" produces actions that
+       are each individually perfectly legal
+  D8c  intent-action mismatch — the agent says one thing and does another; needs both
+       layers at once, so no single-layer detector can see it
+  D8d  concealment — reasoning about hiding, obscuring, or not mentioning
+"""
+from __future__ import annotations
+
+import re
+from typing import Optional
+
+from ..schema import ActionType, Action
+from .base import Context
+
+_PAY = (ActionType.AUTHORIZE, ActionType.A2A_TRANSFER)
+
+
+# ── D8a: injected instruction ────────────────────────────────────────────────
+# Same vocabulary as the payload detector, but the score depends on provenance.
+
+INSTRUCTION_PATTERNS = [
+    (r"ignore\s+(all\s+)?(previous|prior|earlier)\s+instruction", "ignore_previous"),
+    (r"disregard\s+(your|the|all)\s+", "disregard"),
+    (r"you\s+are\s+now\s+(a|an|the)\b", "role_override"),
+    (r"forget\s+(your|all|everything|the\s+above)", "forget"),
+    (r"new\s+(instruction|directive|task)s?\s*:", "new_instructions"),
+    (r"\[SYSTEM\]|<system>", "system_tag"),
+    (r"do\s+not\s+(tell|inform|mention|reveal)", "suppress_disclosure"),
+]
+
+# ── D8b: evasion planning ────────────────────────────────────────────────────
+# The agent reasoning about how to get around a control. The resulting actions
+# are individually compliant, which is exactly why the wire cannot see this.
+
+EVASION_PATTERNS = [
+    (r"(split|divide|break)\s+(it|this|the\s+\w+)?\s*(up\s+)?into\s+(smaller|multiple|several)", 0.90, "splitting_to_evade"),
+    (r"(stay|keep|remain)\s+(just\s+)?(under|below|beneath)\s+(the\s+)?(limit|threshold|cap|ceiling)", 0.95, "staying_under_limit"),
+    (r"(avoid|bypass|circumvent|get\s+around|work\s+around)\s+(the\s+)?(approval|limit|check|review|policy|threshold)", 0.95, "bypass_control"),
+    (r"without\s+(triggering|tripping|alerting|raising)", 0.90, "avoid_trigger"),
+    (r"(spread|spac(e|ing))\s+(them\s+|it\s+|these\s+)?out\s+(over|across)\s+"
+     r"(\w+\s+){0,2}(time|days?|hours?|weeks?|sessions?)", 0.75, "temporal_spreading"),
+    (r"(smaller|separate)\s+(transaction|payment|charge)s?\s+(so|to)\b", 0.85, "structuring"),
+    (r"(won't|will\s+not|shouldn't)\s+(be\s+)?(flagged|noticed|detected|caught)", 0.90, "evade_detection"),
+    (r"below\s+the\s+\$?[\d,]+\s+(limit|threshold)", 0.90, "explicit_threshold_evasion"),
+]
+
+# ── D8d: concealment ─────────────────────────────────────────────────────────
+
+CONCEALMENT_PATTERNS = [
+    (r"(hide|conceal|obscure|mask)\s+(this|the|it|my)", 0.85, "concealment"),
+    (r"(don't|do\s+not|shouldn't)\s+(log|record|report|mention)", 0.85, "avoid_logging"),
+    (r"(secret|covert|quietly|discreetly)\b", 0.55, "covert_language"),
+    (r"my\s+(real|actual|true)\s+(goal|objective|purpose|intent)", 0.90, "hidden_objective"),
+]
+
+
+def _compile(patterns):
+    return [(re.compile(p, re.IGNORECASE), *rest) for p, *rest in patterns]
+
+
+_INSTRUCTION = _compile(INSTRUCTION_PATTERNS)
+_EVASION = _compile(EVASION_PATTERNS)
+_CONCEALMENT = _compile(CONCEALMENT_PATTERNS)
+
+# Words that make a stated intent comparable to an action.
+_INTENT_VERBS = re.compile(
+    r"\b(search|look\s+up|find|check|read|fetch|browse|compare|"
+    r"buy|purchase|pay|order|book|subscribe|transfer|send)\b",
+    re.IGNORECASE,
+)
+_BUY_VERBS = {"buy", "purchase", "pay", "order", "book", "subscribe", "transfer", "send"}
+_AMOUNT_RE = re.compile(r"\$\s?([\d,]+(?:\.\d{1,2})?)")
+
+
+class ReasoningDetector:
+    """
+    D8. Scores 0.0 when no reasoning is present, so it is safe to include in any
+    pipeline — it simply contributes nothing on integrations that cannot see the model.
+    """
+
+    name = "reasoning"
+
+    def __init__(self, intent_mismatch_ratio: float = 3.0):
+        self.intent_mismatch_ratio = intent_mismatch_ratio
+        """Stated amount must differ from actual by this factor to flag a mismatch."""
+
+    def score(self, action: Action, ctx: Context) -> tuple[float, list[str]]:
+        if not action.has_reasoning:
+            return 0.0, []
+
+        text = " ".join(filter(None, [action.reasoning, action.stated_intent]))
+        risk = 0.0
+        flags: list[str] = []
+
+        risk, flags = self._injected(action, text, risk, flags)
+        risk, flags = self._evasion(text, risk, flags)
+        risk, flags = self._concealment(text, risk, flags)
+        risk, flags = self._intent_mismatch(action, risk, flags)
+
+        return risk, flags
+
+    # D8a — an instruction is only suspicious depending on where it came from.
+    def _injected(self, action: Action, text: str, risk: float, flags: list[str]):
+        hits = [name for pattern, name in _INSTRUCTION if pattern.search(text)]
+        if not hits:
+            return risk, flags
+
+        sources = set(action.context_sources)
+        tool_sourced = any(s.startswith("tool:") for s in sources)
+        user_sourced = "user" in sources
+
+        if tool_sourced:
+            # Content returned by a tool is data. It is never entitled to instruct.
+            risk = max(risk, 0.95)
+            flags.append("injected_via_tool_result")
+        elif user_sourced and not sources - {"user", "system"}:
+            # The user may legitimately instruct their own agent.
+            risk = max(risk, 0.35)
+            flags.append("instruction_from_user")
+        else:
+            risk = max(risk, 0.70)
+            flags.append("instruction_unknown_provenance")
+
+        flags.extend(f"instr:{h}" for h in hits)
+        return risk, flags
+
+    # D8b — planning to defeat a control the wire will report as satisfied.
+    def _evasion(self, text: str, risk: float, flags: list[str]):
+        for pattern, weight, name in _EVASION:
+            if pattern.search(text):
+                risk = max(risk, weight)
+                flags.append(f"evasion:{name}")
+        return risk, flags
+
+    # D8d
+    def _concealment(self, text: str, risk: float, flags: list[str]):
+        for pattern, weight, name in _CONCEALMENT:
+            if pattern.search(text):
+                risk = max(risk, weight)
+                flags.append(f"conceal:{name}")
+        return risk, flags
+
+    # D8c — needs L0 and L1 together, so no single-layer detector can reach it.
+    def _intent_mismatch(self, action: Action, risk: float, flags: list[str]):
+        intent = action.stated_intent or action.reasoning
+        if not intent or action.action_type not in _PAY:
+            return risk, flags
+
+        verbs = {v.lower() for v in _INTENT_VERBS.findall(intent)}
+
+        # Said it would only look, then paid.
+        if verbs and not (verbs & _BUY_VERBS):
+            risk = max(risk, 0.85)
+            flags.append("intent_says_read_action_pays")
+
+        # Named an amount that does not match what it actually spent.
+        stated = _AMOUNT_RE.search(intent)
+        if stated and action.amount_units:
+            try:
+                stated_units = int(float(stated.group(1).replace(",", "")) * 1_000_000)
+            except ValueError:
+                stated_units = None
+            if stated_units and stated_units > 0:
+                ratio = action.amount_units / stated_units
+                if ratio >= self.intent_mismatch_ratio or ratio <= 1 / self.intent_mismatch_ratio:
+                    risk = max(risk, 0.90)
+                    flags.append(f"intent_amount_mismatch_{ratio:.1f}x")
+
+        # Named a vendor it then did not pay.
+        if action.vendor:
+            vendor_root = action.vendor.split(".")[0].lower()
+            if len(vendor_root) > 3 and vendor_root not in intent.lower():
+                mentioned = re.findall(r"\b([a-z0-9-]{4,})\.(?:com|ai|io|org|net)\b", intent.lower())
+                if mentioned and vendor_root not in {m for m in mentioned}:
+                    risk = max(risk, 0.80)
+                    flags.append("intent_vendor_mismatch")
+
+        return risk, flags
