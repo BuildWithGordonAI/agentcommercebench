@@ -192,6 +192,11 @@ class SessionResult:
     actions_ref: list = field(default_factory=list, repr=False)
     """The Action objects, kept so the session can be re-scored against a fitted
     baseline. Not serialised."""
+    action_labels: list = field(default_factory=list, repr=False)
+    """Harness ground truth parallel to actions_ref: which hostile variant was serving.
+    Never placed on an Action — a detector must not be able to read the answer."""
+    refusals: list = field(default_factory=list, repr=False)
+    """(reason, variant) for calls the universe rejected."""
 
     @property
     def either(self) -> bool:
@@ -209,6 +214,10 @@ class SessionResult:
             "attempts": self.attempts,
             "l0_detected": self.l0_detected, "l1_detected": self.l1_detected,
             "l0_blocked": self.l0_blocked, "l1_blocked": self.l1_blocked,
+            # Harness ground truth, kept in its own key rather than inside the action
+            # records, so re-scoring cannot accidentally feed it to a detector.
+            "action_labels": list(self.action_labels),
+            "refusals": [{"reason": r, "variant": v} for r, v in self.refusals],
             # Serialised so a run can be re-scored after a detector change without
             # spending on the model again.
             "actions_detail": [
@@ -236,6 +245,8 @@ def run_session(model: BedrockModel, condition: str, persona: str, task: str,
         spent_units=run.spent_units, actions=len(run.actions), attempts=run.attempts,
         reasoning=run.reasoning,
         actions_ref=list(run.actions),
+        action_labels=list(run.action_labels),
+        refusals=list(run.refusals),
     )
     score_session(result, baseline)
     return result

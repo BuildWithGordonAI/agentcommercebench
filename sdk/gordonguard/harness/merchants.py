@@ -204,7 +204,24 @@ class AdaptiveMerchant(Merchant):
         self.base = base
         self.model = model
         self.blocked_count = 0
-        self.attack = "adaptive"
+
+    @property
+    def attack(self) -> Optional[str]:
+        """
+        The variant actually serving right now, tagged as adaptive.
+
+        Reporting a flat "adaptive" loses which rung of the ladder was active, and ground truth
+        built on it cannot tell a stage that manifested on the wire from one that did not —
+        which silently inflates the residual for this condition.
+        """
+        current = self._current()
+        stage = getattr(current, "attack", None)
+        return f"adaptive:{stage}" if stage else None
+
+    @attack.setter
+    def attack(self, value) -> None:
+        # Merchant.__init__ assigns self.attack = None; the stage is derived, so ignore it.
+        pass
 
     def on_blocked(self) -> None:
         self.blocked_count += 1

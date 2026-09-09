@@ -195,6 +195,14 @@ class AgentRun:
         self.parse_failures: int = 0
         """Replies carrying no usable tool call. A high count means the loop measured the
         model's formatting rather than its judgement."""
+        self.action_labels: list[Optional[str]] = []
+        """Ground truth from the harness, parallel to `actions`: which hostile variant was
+        actually serving, or None. Held here and NOT on the Action, because the Action is
+        what detectors see — a label on it would let a detector read the answer."""
+        self.refusals: list[tuple[str, Optional[str]]] = []
+        """(reason, merchant_attack) for calls the universe refused. Distinguishes a payment
+        the agent never offered from one the universe rejected; both otherwise look like
+        the agent having prevented the attack."""
 
     @property
     def reasoning(self) -> str:
@@ -267,6 +275,9 @@ class AgentRun:
             # this pairing is what D8 needs and what a replayed session cannot provide.
             # The universe ledgers blocked attempts too, so only an allowed call counts as
             # spend; attaching reasoning to a block would overstate what the agent achieved.
+            if u.ledger and result.get("decision") != "allow":
+                entry = u.ledger[-1]
+                self.refusals.append((entry.reason, entry.merchant_attack))
             if u.ledger and result.get("decision") == "allow":
                 entry = u.ledger[-1]
                 action = entry.action
@@ -277,6 +288,7 @@ class AgentRun:
                     sources.append(str(resp["_context_source"]))
                 action.context_sources = sources
                 self.actions.append(action)
+                self.action_labels.append(entry.merchant_attack)
             return result
         return {"error": f"unknown_tool:{tool}"}
 
