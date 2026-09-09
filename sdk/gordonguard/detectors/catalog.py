@@ -117,7 +117,16 @@ class CatalogDetector:
 
         registered_payee = entry.get("payee")
         if registered_payee and action.payee and action.payee != registered_payee:
-            risk = max(risk, 0.95)
+            # Escalate, do not block.
+            #
+            # Measured on production traffic (2026-09-08): PAY_TO_ADDRESS_CHANGED fired on
+            # 14 of 1,027 scored settlements — real payments, by real agents, that settled
+            # normally. Services rotate their settlement addresses, so a changed payee is
+            # routine rather than conclusive. The deployed detector scores it 50 against a
+            # block threshold of 60 — warn, not block. Scoring it 0.95 here would have
+            # blocked 14 legitimate payments, making it the largest single source of false
+            # positives in this package.
+            risk = max(risk, 0.60)
             flags.append("payee_changed")
 
         catalogued = entry.get("price_units")
