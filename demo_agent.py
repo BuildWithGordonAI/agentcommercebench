@@ -524,7 +524,7 @@ def finale():
     print(f"    {d('zero-latency block on AUTHORIZE when fraud score ≥ 0.70')}")
     _blank()
     _rule()
-    print(f"  {d('demo: gordonguard.py  |  bench: python -m benchmark.run  |  github: BuildWithGordonAI/agentcommercebench')}")
+    print(f"  {d('demo: demo_cli.py  |  bench: python -m benchmark.run  |  github: BuildWithGordonAI/agentcommercebench')}")
     _blank()
 
 

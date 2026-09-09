@@ -1,0 +1,25 @@
+{
+  "fitted_on": {
+    "sessions": 1200,
+    "agents": 60,
+    "clean_payments": 3013
+  },
+  "budget": {
+    "flag": 0.1,
+    "block": 0.01
+  },
+  "z_escalate": 1.237,
+  "z_block": 1.675,
+  "soft_limit_k": 1.237,
+  "ceiling_k": 1.675,
+  "observed_clean_novelty_rate": 0.0473,
+  "clean_z_quantiles": {
+    "p50": 0.126,
+    "p75": 0.799,
+    "p90": 1.237,
+    "p95": 1.393,
+    "p99": 1.675,
+    "p100": 2.087
+  },
+  "note": "Fitted on clean training traffic only. Recall on the test attacks was not an input to this fit and must not become one."
+}

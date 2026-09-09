@@ -4,7 +4,7 @@ gordonguard — Gordon AI Commerce Agent Fraud Harness
 Interactive CLI for exploring agent behavior and fraud detection.
 
 Usage:
-    python gordonguard.py
+    python demo_cli.py
 """
 import os, sys, time, random, shutil
 from datetime import datetime, timedelta

@@ -10,7 +10,7 @@
 
 **Then open terminal and run:**
 ```bash
-python gordonguard.py
+python demo_cli.py
 ```
 
 ---

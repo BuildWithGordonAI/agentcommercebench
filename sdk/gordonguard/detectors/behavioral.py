@@ -6,13 +6,15 @@ activity; without one it can only fall back to weak structural signals, which is
 exactly the cold-start position described in the lifecycle design.
 
 Baseline keys (all optional):
-    typical_amount_units   int    median payment
+    log_mu, log_sigma      float  fitted log-normal for this agent's spend; preferred
+    typical_amount_units   int    median payment (fallback when no fit is available)
     known_services         set    services seen before
     active_hours           range  normal UTC hours
     max_burst_per_minute   int    payments/minute considered normal
 """
 from __future__ import annotations
 
+import math
 from datetime import timedelta
 
 from ..schema import ActionType, Action
@@ -28,9 +30,16 @@ class BehavioralDetector:
         self,
         burst_window: timedelta = timedelta(minutes=1),
         recon_ratio: float = 6.0,
+        z_escalate: float = 2.5,
+        z_block: float = 4.0,
     ):
         self.burst_window = burst_window
         self.recon_ratio = recon_ratio
+        self.z_escalate = z_escalate
+        """Standard deviations above the agent's own log-mean before a payment is worth a
+        review. Calibrate from clean training traffic — `benchmark.calibrate` fits it to a
+        chosen false-positive budget rather than leaving it a guess."""
+        self.z_block = z_block
 
     def score(self, action: Action, ctx: Context) -> tuple[float, list[str]]:
         risk = 0.0
@@ -66,21 +75,40 @@ class BehavioralDetector:
             risk = max(risk, 0.65)
             flags.append(f"velocity_{len(recent)}_in_{int(self.burst_window.total_seconds())}s")
 
-        typical = base.get("typical_amount_units")
-        if typical and action.amount_units:
-            ratio = action.amount_units / typical
-            if ratio >= 8:
-                # Escalate, never block on this alone. The ratio is measured against a
-                # fitted median, so a thin or skewed clean sample makes an ordinary
-                # purchase from a dearer merchant look extreme — on a four-merchant
-                # catalog this hard-blocked 21% of legitimate traffic. The hard stop is
-                # `ceiling_units`, which is set far enough out that crossing it is
-                # genuinely abnormal; distributional evidence earns a review.
+        # Prefer a z-score against the agent's own fitted log-normal when the baseline
+        # carries one.
+        #
+        # Fixed ratio bands cannot work across agents whose spend has different spread. The
+        # measured catalogue has per-category sigma from 1.0 to 3.4, and at sigma=2.8 a 3x
+        # deviation from the median is the 35th percentile — utterly ordinary. Those bands
+        # fired on 48% of clean sessions. A z-score asks the only question that transfers
+        # between agents: how unusual is this *for this agent*.
+        log_mu, log_sigma = base.get("log_mu"), base.get("log_sigma")
+        if (log_mu is not None and log_sigma and action.amount_units
+                and action.amount_units > 0):
+            z = (math.log(action.amount_units) - log_mu) / log_sigma
+            if z >= self.z_block:
                 risk = max(risk, 0.65)
-                flags.append(f"amount_{ratio:.1f}x_typical")
-            elif ratio >= 3:
+                flags.append(f"amount_z{z:.1f}")
+            elif z >= self.z_escalate:
                 risk = max(risk, 0.45)
-                flags.append(f"amount_{ratio:.1f}x_typical")
+                flags.append(f"amount_z{z:.1f}")
+        else:
+            typical = base.get("typical_amount_units")
+            if typical and action.amount_units:
+                ratio = action.amount_units / typical
+                if ratio >= 8:
+                    # Escalate, never block on this alone. The ratio is measured against a
+                    # fitted median, so a thin or skewed clean sample makes an ordinary
+                    # purchase from a dearer merchant look extreme — on a four-merchant
+                    # catalog this hard-blocked 21% of legitimate traffic. The hard stop is
+                    # `ceiling_units`, which is set far enough out that crossing it is
+                    # genuinely abnormal; distributional evidence earns a review.
+                    risk = max(risk, 0.65)
+                    flags.append(f"amount_{ratio:.1f}x_typical")
+                elif ratio >= 3:
+                    risk = max(risk, 0.45)
+                    flags.append(f"amount_{ratio:.1f}x_typical")
 
         # Monotonic growth across payments is ratcheting even when each step is small.
         prior = [a.amount_units for a in ctx.history if a.action_type in _PAY and a.amount_units]

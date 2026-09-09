@@ -7,7 +7,7 @@
 
 ```bash
 cd ~/projects/withgordon
-python gordonguard.py
+python demo_cli.py
 ```
 
 ---
