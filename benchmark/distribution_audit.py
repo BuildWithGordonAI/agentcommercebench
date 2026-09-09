@@ -35,12 +35,25 @@ from pathlib import Path
 from typing import Any, Callable, Optional
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "sdk"))
 
 from benchmark.synthetic import generate
 
 # Features an attack is *about*. Separation on these is legitimate; everywhere else it is a
 # giveaway. Anything not listed here is a nuisance feature for that class.
 INTENDED = {
+    # v2 classes
+    "S1": {"amount"},        # over this agent's own limit
+    "S2": {"n_commits"},     # velocity relative to the agent's own norm
+    "S3": {"mcc"},           # category outside the agent's domain
+    "S4": {"payee"},
+    "S5": {"idempotency_key"},
+    "S6": {"agent_id"},
+    "A1": {"reasoning", "payee"},
+    "A2": {"reasoning"},
+    "A3": {"reasoning"},
+    "A4": {"reasoning"},
+    # legacy classes
     "B1": {"first_action"},          # cold start: begins at COMMIT
     "B2": {"n_commits"},             # velocity flood
     "B3": {"mcc"},                   # merchant anomaly
@@ -59,8 +72,10 @@ def amounts(session) -> list[float]:
 
 
 def n_commits(session) -> int:
+    """Payment actions. Accepts the old COMMIT naming and the v2 `authorize`."""
     return sum(1 for a in session.actions
-               if "COMMIT" in str(getattr(a, "action_type", "")))
+               if "COMMIT" in str(getattr(a, "action_type", ""))
+               or "authorize" in str(getattr(a, "action_type", "")).lower())
 
 
 def first_action(session) -> str:
@@ -129,8 +144,34 @@ def in_support(values: list[float], reference: list[float]) -> float:
     return sum(1 for v in values if lo <= v <= hi) / len(values)
 
 
-def audit(n_clean: int = 400, n_per_attack: int = 60, seed: int = 42) -> dict[str, Any]:
-    data = generate(n_clean=n_clean, n_per_attack=n_per_attack, seed=seed)
+class _Rec:
+    """Adapts a v2 JSONL record to the shape this audit expects."""
+
+    __slots__ = ("actions", "attack_type")
+
+    def __init__(self, row):
+        self.attack_type = row.get("probe_id") if not row.get("is_clean") else None
+        self.actions = [_Act(a) for a in row["actions"]]
+
+
+class _Act:
+    __slots__ = ("amount", "action_type")
+
+    def __init__(self, a):
+        self.amount = a.get("amount_units")
+        self.action_type = a.get("action_type", "")
+
+
+def load_v2(path: str) -> list:
+    import json
+    with open(path) as fh:
+        return [_Rec(json.loads(line)) for line in fh if line.strip()]
+
+
+def audit(n_clean: int = 400, n_per_attack: int = 60, seed: int = 42,
+          v2_path: Optional[str] = None) -> dict[str, Any]:
+    data = load_v2(v2_path) if v2_path else generate(
+        n_clean=n_clean, n_per_attack=n_per_attack, seed=seed)
     by_class: dict[str, list] = collections.defaultdict(list)
     for s in data:
         by_class[getattr(s, "attack_type", None) or "clean"].append(s)
@@ -221,9 +262,10 @@ def main(argv=None) -> int:
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("--strict", action="store_true",
                    help="exit 1 if any nuisance feature separates a class")
+    p.add_argument("--v2", help="audit a generated v2 split instead of the old generator")
     args = p.parse_args(argv)
 
-    report = audit(args.clean, args.per_attack, args.seed)
+    report = audit(args.clean, args.per_attack, args.seed, v2_path=args.v2)
     print(render(report))
     if args.strict:
         leaks = [x for x in worst_nuisance(report) if abs(x[2] - 0.5) > 0.25]
