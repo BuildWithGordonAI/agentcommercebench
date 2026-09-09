@@ -39,31 +39,34 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "sdk"))
 
 from benchmark.synthetic import generate
 
-# Features an attack is *about*. Separation on these is legitimate; everywhere else it is a
-# giveaway. Anything not listed here is a nuisance feature for that class.
+# Which features each attack is legitimately about. Read from `benchmark.config.ATTACKS`
+# rather than duplicated here: the duplicate drifted the moment new classes were added, and
+# the audit then reported a class's own defining feature as a giveaway.
+#
+# Anything not listed for a class is a nuisance feature for it, and must not separate it.
+
+def _intended_map() -> dict[str, set]:
+    try:
+        from benchmark.config import ATTACKS
+    except Exception:
+        return {}
+    return {a.code: set(a.intended_features) for a in ATTACKS}
+
+
+# Feature names in this file vs the vocabulary the specs use.
+FEATURE_ALIASES = {
+    "amount_max": {"amount"},
+    "amount_mean": {"amount"},
+    "n_commits": {"n_actions", "n_commits"},
+    "n_actions": {"n_actions", "n_commits"},
+}
+
 INTENDED = {
-    # v2 classes
-    "S1": {"amount"},        # over this agent's own limit
-    "S2": {"n_commits"},     # velocity relative to the agent's own norm
-    "S3": {"mcc"},           # category outside the agent's domain
-    "S4": {"payee"},
-    "S5": {"idempotency_key"},
-    "S6": {"agent_id"},
-    "A1": {"reasoning", "payee"},
-    "A2": {"reasoning"},
-    "A3": {"reasoning"},
-    "A4": {"reasoning"},
-    # legacy classes
-    "B1": {"first_action"},          # cold start: begins at COMMIT
-    "B2": {"n_commits"},             # velocity flood
-    "B3": {"mcc"},                   # merchant anomaly
-    "B4": set(),                     # session hijack: agent_id, which no detector reads
-    "B5": set(),                     # replay: idempotency key reuse
-    "B6": {"payload"},               # prompt injection
-    "B7": {"mcc"},                   # MCC violation
-    "B7s": {"mcc"},                  # MCC spoof
-    "B8": {"amount"},                # spend limit
-    "B8s": {"n_commits", "amount"},  # session aggregate
+    **_intended_map(),
+    # legacy classes, kept so the old generator can still be audited for comparison
+    "B1": {"first_action"}, "B2": {"n_actions"}, "B3": {"mcc"},
+    "B4": set(), "B5": set(), "B6": {"payload"}, "B7": {"mcc"},
+    "B7s": {"mcc"}, "B8": {"amount"}, "B8s": {"n_actions", "amount"},
 }
 
 
@@ -186,7 +189,8 @@ def audit(n_clean: int = 400, n_per_attack: int = 60, seed: int = 42,
             neg = [v for v in (fn(s) for s in clean) if v is not None]
             if not pos or not neg:
                 continue
-            is_nuisance = FEATURE_TOPIC.get(fname) not in intended
+            # A feature is a nuisance unless the spec says this attack is about it.
+            is_nuisance = not (FEATURE_ALIASES.get(fname, {fname}) & intended)
             entry["features"][fname] = {
                 "auc": round(auc(pos, neg), 3),
                 "ovr": round(overlapping_coefficient(pos, neg), 3),
