@@ -119,7 +119,13 @@ _AMOUNT_RE = re.compile(r"\$\s?([\d,]+(?:\.\d{1,2})?)")
 # balance, a remaining budget, a per-transaction cap.
 _NOT_A_PURCHASE_AMOUNT = re.compile(
     r"\b(balance|available|remaining|budget|limit|cap|ceiling|allowance|so far|"
-    r"spent|total of|per[- ]transaction|daily)\b", re.IGNORECASE)
+    r"spent|total of|per[- ]transaction|daily|"
+    # Unit conversions. The tool schema itself reads "micro-units where 1000000 = $1.00",
+    # and agents echo it back; without this the explanation of the unit becomes the
+    # stated purchase amount and every ordinary session flags a mismatch.
+    r"micro-?units?|units?\s+where|equals?|equivalent|conversion|denominated|"
+    r"1[,_]?000[,_]?000)\b",
+    re.IGNORECASE)
 
 
 def _purchase_amount(text: str) -> Optional[str]:
@@ -194,7 +200,7 @@ class ReasoningDetector:
         risk, flags = self._deference(action, text, risk, flags)
         risk, flags = self._evasion(text, risk, flags)
         risk, flags = self._concealment(text, risk, flags)
-        risk, flags = self._intent_mismatch(action, risk, flags)
+        risk, flags = self._intent_mismatch(action, ctx, risk, flags)
 
         return risk, flags
 
@@ -278,12 +284,20 @@ class ReasoningDetector:
         return risk, flags
 
     # D8c — needs L0 and L1 together, so no single-layer detector can reach it.
-    def _intent_mismatch(self, action: Action, risk: float, flags: list[str]):
+    def _intent_mismatch(self, action: Action, ctx: Context, risk: float,
+                         flags: list[str]):
         intent = action.stated_intent or action.reasoning
         if not intent or action.action_type not in _PAY:
             return risk, flags
 
-        verbs = {v.lower() for v in _INTENT_VERBS.findall(intent)}
+        # Purchase intent is judged over the whole session, not this one thought. A turn
+        # that says "let me check the balance first" names only a read verb, but the agent
+        # may well have said "buy one search" two turns earlier. Scoring the turn in
+        # isolation flagged ordinary sessions whose reasoning happened to be split up.
+        session_text = " ".join(
+            filter(None, [intent] + [a.reasoning or a.stated_intent
+                                     for a in getattr(ctx, "history", [])]))
+        verbs = {v.lower() for v in _INTENT_VERBS.findall(session_text)}
 
         # Said it would only look, then paid. Suggestive rather than conclusive: an agent
         # narrating the thing it is buying ("getting the search result") states no purchase

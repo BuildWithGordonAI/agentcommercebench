@@ -84,3 +84,10 @@ harness/data/
 benchmark/models/finetune_data_hf_graph.jsonl
 benchmark/models/finetune_data_hf_graph_val.jsonl
 benchmark/models/sagemaker_job_graph.json
+
+# Papers stay out of this repo — it is for code and data that reproduce the results.
+# Untracked was not enough: `git add -A` would have swept the .tex and PDFs in.
+paper/
+
+# Local working notes (product, design, method write-ups). Kept on disk, not published here.
+design/

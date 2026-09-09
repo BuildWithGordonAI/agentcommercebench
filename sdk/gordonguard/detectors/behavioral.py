@@ -70,7 +70,13 @@ class BehavioralDetector:
         if typical and action.amount_units:
             ratio = action.amount_units / typical
             if ratio >= 8:
-                risk = max(risk, 0.70)
+                # Escalate, never block on this alone. The ratio is measured against a
+                # fitted median, so a thin or skewed clean sample makes an ordinary
+                # purchase from a dearer merchant look extreme — on a four-merchant
+                # catalog this hard-blocked 21% of legitimate traffic. The hard stop is
+                # `ceiling_units`, which is set far enough out that crossing it is
+                # genuinely abnormal; distributional evidence earns a review.
+                risk = max(risk, 0.65)
                 flags.append(f"amount_{ratio:.1f}x_typical")
             elif ratio >= 3:
                 risk = max(risk, 0.45)
