@@ -112,8 +112,26 @@ def fit_baselines(train: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
     return out
 
 
-def l0() -> Pipeline:
-    return Pipeline([ReasoningDetector()])
+def l0(kind: str = "d8", llm=None) -> Pipeline:
+    """
+    Select the L0 judge.
+
+    d8       the regex reasoning detector already in the package
+    pattern  probe-based, garak/promptfoo style
+    llm      a model answering a rubric
+    ensemble pattern + llm, strongest signal
+    """
+    from gordonguard.detectors.l0_judge import EnsembleJudge, LLMJudge, PatternJudge
+
+    if kind == "d8":
+        return Pipeline([ReasoningDetector()])
+    if kind == "pattern":
+        return Pipeline([PatternJudge()])
+    if kind == "llm":
+        return Pipeline([llm or LLMJudge()])
+    if kind == "ensemble":
+        return Pipeline([EnsembleJudge(PatternJudge(), llm or LLMJudge())])
+    raise ValueError(f"unknown L0 judge: {kind}")
 
 
 def l1() -> Pipeline:
@@ -143,10 +161,12 @@ def score(record: dict[str, Any], pipeline: Pipeline,
     return flagged, blocked, flags
 
 
-def evaluate(data_dir: Path) -> dict[str, Any]:
+def evaluate(data_dir: Path, l0_kind: str = "d8", llm=None) -> dict[str, Any]:
     train = load(data_dir / "train.jsonl")
     test = load(data_dir / "test.jsonl")
     baselines = fit_baselines(train)
+    l0_pipeline = l0(l0_kind, llm)
+    l1_pipeline = l1()
 
     per_class: dict[str, dict[str, Any]] = defaultdict(
         lambda: {"n": 0, "l0_flag": 0, "l1_flag": 0, "either_flag": 0, "either_block": 0,
@@ -156,8 +176,8 @@ def evaluate(data_dir: Path) -> dict[str, Any]:
 
     for row in test:
         base = dict(baselines.get(row["agent_id"], {}))
-        f0, b0, fl0 = score(row, l0(), base)
-        f1, b1, fl1 = score(row, l1(), base)
+        f0, b0, fl0 = score(row, l0_pipeline, base)
+        f1, b1, fl1 = score(row, l1_pipeline, base)
         bucket = clean if row["is_clean"] else per_class[row["probe_id"]]
         bucket["n"] += 1
         bucket["l0_flag"] += f0
@@ -177,6 +197,7 @@ def evaluate(data_dir: Path) -> dict[str, Any]:
                 "top_flags": dict(sorted(b["flags"].items(), key=lambda r: -r[1])[:4])}
 
     return {
+        "l0_judge": l0_kind,
         "agents_with_baseline": len(baselines),
         "train_sessions": len(train),
         "test_sessions": len(test),
@@ -188,7 +209,7 @@ def evaluate(data_dir: Path) -> dict[str, Any]:
 def render(r: dict[str, Any]) -> str:
     clean_flag = r["clean"]["flagged"]
     clean_block = r["clean"]["blocked"]
-    out = ["", f"  Detectors vs the grounded benchmark",
+    out = ["", f"  Detectors vs the grounded benchmark   [L0 judge: {r.get('l0_judge')}]",
            f"  norms fitted per agent on {r['train_sessions']} clean training sessions "
            f"({r['agents_with_baseline']} agents)", "  " + "─" * 68, "",
            f"    {'class':<8} {'n':>5} {'L0':>6} {'L1':>6} {'flagged':>8} {'lift':>7} "
@@ -234,9 +255,28 @@ def main(argv=None) -> int:
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--data", default="benchmark/data/v2")
     p.add_argument("--out", help="write the full report to this JSON path")
+    p.add_argument("--l0", default="d8", choices=("d8", "pattern", "llm", "ensemble"))
+    p.add_argument("--model", default="us.anthropic.claude-haiku-4-5-20251001-v1:0")
+    p.add_argument("--cache", default="benchmark/results/l0_judge_cache.json")
     args = p.parse_args(argv)
 
-    report = evaluate(Path(args.data))
+    llm = None
+    if args.l0 in ("llm", "ensemble"):
+        from gordonguard.detectors.l0_judge import LLMJudge
+        try:
+            from benchmark.adversarial_eval import BedrockModel
+            model = BedrockModel(args.model, temperature=0.0, max_tokens=80)
+            llm = LLMJudge(complete=model.complete, cache_path=args.cache)
+        except Exception as exc:
+            print(f"  LLM judge unavailable ({type(exc).__name__}); "
+                  f"scoring with the cache only", file=sys.stderr)
+            llm = LLMJudge(complete=None, cache_path=args.cache)
+
+    report = evaluate(Path(args.data), args.l0, llm)
+    if llm is not None:
+        llm.save()
+        report["llm_calls"] = llm.calls
+        report["llm_cache_hits"] = llm.hits
     print(render(report))
     if args.out:
         Path(args.out).write_text(json.dumps(report, indent=2, default=str))
