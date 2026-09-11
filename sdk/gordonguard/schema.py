@@ -75,6 +75,10 @@ class Action:
     category: Optional[str] = None
     endpoint: Optional[str] = None
     payee: Optional[str] = None
+    request_fingerprint: Optional[str] = None
+    """Hash of the request this payment is for. Production records one on every settlement.
+    It is the only thing that distinguishes ONE purchase paid twice from TWO purchases of the
+    same item at the same price — which are identical in amount, service and timing."""
     """Settlement destination actually used, for comparison against the registry."""
     idempotency_key: Optional[str] = None
 

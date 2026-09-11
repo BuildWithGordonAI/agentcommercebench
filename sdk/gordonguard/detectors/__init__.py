@@ -10,6 +10,11 @@ from .base import (
 )
 from .behavioral import BehavioralDetector
 from .catalog import CatalogDetector
+from .economic import (
+    DuplicateChargeDetector,
+    EconomicDetector,
+    PriceReference,
+)
 from .payload import PayloadDetector
 from .price import PriceDetector
 from .reasoning import ReasoningDetector
@@ -20,6 +25,9 @@ __all__ = [
     "ESCALATE_AT",
     "BehavioralDetector",
     "CatalogDetector",
+    "DuplicateChargeDetector",
+    "EconomicDetector",
+    "PriceReference",
     "Context",
     "Detector",
     "PayloadDetector",
