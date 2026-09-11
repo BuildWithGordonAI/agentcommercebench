@@ -38,6 +38,7 @@ import json
 import math
 import random
 import sys
+from datetime import datetime, timedelta, timezone
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional
@@ -150,6 +151,34 @@ def phrasing_overlap(detector_patterns: list[str]) -> dict[str, float]:
     return out
 
 
+# ── Time ─────────────────────────────────────────────────────────────────────
+#
+# Every timestamp is relative to the moment of generation. A dataset generated today reads as
+# today's traffic, so it never goes stale and no detector can key on an absolute date.
+#
+# This is also what turns velocity from a count into a rate. The old generator had no time at
+# all, so "velocity attack" meant "more actions per session" — detectable by counting rather
+# than by any model of how fast an agent normally works.
+
+
+class Clock:
+    """A session's wall clock, advancing in realistic steps."""
+
+    def __init__(self, start: datetime, rng: random.Random, cfg: "GeneratorConfig"):
+        self.now = start
+        self.rng = rng
+        self.cfg = cfg
+
+    def tick(self, seconds: Optional[float] = None) -> datetime:
+        lo, hi = self.cfg.session_span_seconds
+        step = seconds if seconds is not None else self.rng.uniform(1.0, max(2.0, hi / 12))
+        self.now = self.now + timedelta(seconds=step)
+        return self.now
+
+    def settle_after(self) -> timedelta:
+        return timedelta(seconds=self.rng.uniform(*self.cfg.authorize_to_settle_seconds))
+
+
 # ── Per-agent behaviour ──────────────────────────────────────────────────────
 
 @dataclass
@@ -221,6 +250,24 @@ def build_profiles(cfg: GeneratorConfig, rng: random.Random) -> list[AgentProfil
 
 # ── Session construction ─────────────────────────────────────────────────────
 
+def _settle(action: Action, clock: Clock, cfg: "GeneratorConfig",
+            rng: random.Random) -> dict[str, Any]:
+    """
+    Decide what the rail did with this payment.
+
+    Production fails 20% of the time. A benchmark where every payment succeeds cannot contain
+    retry-and-duplicate, which is the most concrete agent-payment risk anyone has documented.
+    """
+    authorized_at = clock.now
+    failed = rng.random() < cfg.settlement_failure_rate
+    return {
+        "authorized_at": authorized_at.isoformat(),
+        "settled_at": None if failed else (authorized_at + clock.settle_after()).isoformat(),
+        "receipt_status": "failed" if failed else "confirmed",
+        "tx_hash": None if failed else f"0x{rng.randrange(16 ** 40):040x}",
+    }
+
+
 def _action(profile: AgentProfile, session_id: str, kind: ActionType, rng: random.Random,
             **over: Any) -> Action:
     base = dict(
@@ -240,7 +287,8 @@ def _action(profile: AgentProfile, session_id: str, kind: ActionType, rng: rando
     return Action(**base)
 
 
-def clean_session(profile: AgentProfile, session_id: str, rng: random.Random) -> Session:
+def clean_session(profile: AgentProfile, session_id: str, rng: random.Random,
+                  clock: Optional[Clock] = None) -> Session:
     """
     Ordinary traffic for this agent: find_service -> authorize, repeated.
 
@@ -248,16 +296,72 @@ def clean_session(profile: AgentProfile, session_id: str, rng: random.Random) ->
     zero variance, and a velocity attack was then detectable by counting rather than by any
     model of behaviour.
     """
+    cfg = GeneratorConfig()
+    clock = clock or Clock(datetime.now(timezone.utc), rng, cfg)
     actions: list[Action] = []
+    rails: list[dict[str, Any]] = []
+
     for _ in range(profile.sample_n_purchases(rng)):
-        actions.append(_action(profile, session_id, ActionType.FIND_SERVICE, rng))
-        actions.append(_action(
-            profile, session_id, ActionType.AUTHORIZE, rng,
-            reasoning=_benign_reasoning(profile, rng),
-            context_sources=["user"],
-        ))
-    return Session(agent_id=profile.policy.agent_id, persona=None, session_id=session_id,
-                   actions=actions, is_clean=True)
+        find = _action(profile, session_id, ActionType.FIND_SERVICE, rng)
+        find.timestamp = clock.tick()
+        actions.append(find)
+        rails.append({"receipt_status": None})
+
+        pay = _action(profile, session_id, ActionType.AUTHORIZE, rng,
+                      reasoning=_benign_reasoning(profile, rng),
+                      context_sources=["user"])
+        pay.timestamp = clock.tick()
+        rail = _settle(pay, clock, cfg, rng)
+        actions.append(pay)
+        rails.append(rail)
+
+        # A failed payment is usually retried. Whether that retry reuses the idempotency key
+        # decides whether the agent pays once or twice, and frameworks that regenerate tool
+        # arguments produce a fresh key — which is a duplicate payment, not a retry.
+        if rail["receipt_status"] == "failed" and rng.random() < cfg.retry_after_failure_rate:
+            retry = _action(profile, session_id, ActionType.AUTHORIZE, rng,
+                            amount_units=pay.amount_units,
+                            service_id=pay.service_id,
+                            reasoning="The call failed, so I am retrying it.",
+                            context_sources=["user"])
+            if rng.random() < cfg.retry_reuses_idempotency_key:
+                retry.idempotency_key = pay.idempotency_key
+            retry.timestamp = clock.tick(rng.uniform(0.5, 8.0))
+            actions.append(retry)
+            rails.append(_settle(retry, clock, cfg, rng))
+
+    session = Session(agent_id=profile.policy.agent_id, persona=None, session_id=session_id,
+                      actions=actions, is_clean=True)
+    session.rail = rails
+    session.defects = _defects(actions, rails)
+    return session
+
+
+def _defects(actions: list[Action], rails: list[dict[str, Any]]) -> list[str]:
+    """
+    Losses that are nobody's attack.
+
+    A duplicate payment from a retry is not fraud — the agent did not intend to pay twice, and
+    no adversary is involved. But it is money gone, so calling the session "clean" hides a real
+    loss, and a detector that ignores it is ignoring the most concrete documented agent-payment
+    failure.
+
+    Fraud, leakage and error are three different things in payments and the benchmark should
+    not collapse them into two. These are labelled separately so they can be scored as their
+    own outcome rather than polluting either class.
+    """
+    found: list[str] = []
+    seen: dict[tuple, str] = {}
+    for action, rail in zip(actions, rails):
+        if action.action_type is not ActionType.AUTHORIZE:
+            continue
+        key = (action.service_id, action.amount_units)
+        if key in seen and rail.get("receipt_status") == "confirmed":
+            # Paid twice for one intent, because the retry carried a fresh key.
+            if action.idempotency_key != seen[key]:
+                found.append("duplicate_payment")
+        seen[key] = action.idempotency_key or ""
+    return found
 
 
 def _benign_reasoning(profile: "AgentProfile", rng: random.Random,
@@ -446,6 +550,8 @@ def to_record(session: Session, profile: Optional["AgentProfile"] = None) -> dic
         "agent_id": session.agent_id,
         "is_clean": session.is_clean,
         "probe_id": session.probe_id,
+        # Losses with no adversary — fraud, leakage and error are distinct in payments.
+        "defects": list(getattr(session, "defects", [])),
         "actions": [
             {
                 "action_type": a.action_type.value,
@@ -460,9 +566,14 @@ def to_record(session: Session, profile: Optional["AgentProfile"] = None) -> dic
                 "payload": a.payload,
                 "reasoning": a.reasoning,
                 "context_sources": list(a.context_sources),
+                "timestamp": a.timestamp.isoformat() if a.timestamp else None,
+                # L2 — what the settlement rail did. Separate from the L1 request on purpose:
+                # a detector reading the wire does not automatically see the outcome.
+                "rail": (session.rail[i] if getattr(session, "rail", None)
+                         and i < len(session.rail) else {}),
                 "is_attack": a.is_attack,
             }
-            for a in session.actions
+            for i, a in enumerate(session.actions)
         ],
     }
     if profile is not None:

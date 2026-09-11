@@ -224,6 +224,41 @@ class GeneratorConfig:
 
     attack_rate: float = 0.25
 
+    # ── L2: the settlement rail ──────────────────────────────────────────
+    #
+    # Payments fail, and the benchmark has to contain that or a whole class of risk is
+    # inexpressible. Retry-and-duplicate is the most concrete documented agent-payment
+    # failure — CrewAI carries an open issue titled "Tool re-execution on task retry has no
+    # idempotency guard: duplicate payments, emails, trades possible" — and it cannot occur
+    # in a world where nothing fails.
+
+    settlement_failure_rate: float = 0.203
+    """MEASURED 2026-09-08: 217 of 1,068 production settlements had receipt_status='failed'."""
+
+    retry_after_failure_rate: float = 0.7
+    """How often an agent retries a failed payment. A framework default — retry-on-failure is
+    the norm — rather than a measured figure. Marked as an assumption, not an observation."""
+
+    retry_reuses_idempotency_key: float = 0.35
+    """How often a retry carries the original key. Below 1.0 on purpose: a framework that
+    retries a tool call usually regenerates arguments, so the key is new and the payment is a
+    duplicate. This is the parameter the whole duplicate-payment class turns on."""
+
+    # ── Time ─────────────────────────────────────────────────────────────
+    #
+    # Timestamps are emitted relative to the moment of generation, so a dataset is never stale
+    # and a detector cannot key on an absolute date. Velocity then becomes a rate rather than
+    # a count, which is what it is in production.
+
+    session_span_seconds: tuple[int, int] = (20, 900)
+    """Wall-clock spread of one session's actions."""
+
+    authorize_to_settle_seconds: tuple[float, float] = (0.4, 6.0)
+    """Gap between authorization and settlement. The window a duplicate lands in."""
+
+    inter_session_hours: tuple[float, float] = (0.5, 72.0)
+    """Gap between an agent's sessions, so history has a real time axis."""
+
     notes: str = ""
 
     # ── derived ──────────────────────────────────────────────────────────
