@@ -1,25 +1,58 @@
 {
+  "catalogue_tolerance": 1.487,
+  "peer_tolerance": 1.431,
+  "catalogue_block": 2.04,
+  "peer_block": 1.969,
+  "quote_tolerance": 1.502,
+  "price_ratio_quantiles": {
+    "catalogue": {
+      "p50": 1.068,
+      "p90": 1.487,
+      "p95": 1.778,
+      "p99": 2.04
+    },
+    "peers": {
+      "p50": 1.029,
+      "p90": 1.431,
+      "p95": 1.726,
+      "p99": 1.969
+    },
+    "quote": {
+      "p50": 1.068,
+      "p90": 1.502,
+      "p95": 1.807,
+      "p99": 2.048
+    }
+  },
   "fitted_on": {
     "sessions": 1200,
     "agents": 60,
-    "clean_payments": 3013
+    "clean_sessions": 1200,
+    "clean_payments": 3417
   },
   "budget": {
     "flag": 0.1,
     "block": 0.01
   },
-  "z_escalate": 1.237,
-  "z_block": 1.675,
-  "soft_limit_k": 1.237,
-  "ceiling_k": 1.675,
-  "observed_clean_novelty_rate": 0.0473,
+  "z_escalate": 1.57,
+  "z_block": 2.169,
+  "soft_limit_k": 1.57,
+  "ceiling_k": 2.169,
+  "observed_clean_novelty_rate": 0.0437,
   "clean_z_quantiles": {
-    "p50": 0.126,
-    "p75": 0.799,
-    "p90": 1.237,
-    "p95": 1.393,
-    "p99": 1.675,
-    "p100": 2.087
+    "p50": 0.708,
+    "p75": 1.16,
+    "p90": 1.57,
+    "p95": 1.753,
+    "p99": 2.169,
+    "p100": 2.997
   },
-  "note": "Fitted on clean training traffic only. Recall on the test attacks was not an input to this fit and must not become one."
+  "note": "Fitted on clean training traffic only. Recall on the test attacks was not an input to this fit and must not become one.",
+  "escalate_at": 0.7,
+  "block_at": 0.95,
+  "clean_sessions_scored": 1004,
+  "achieved_on_train": {
+    "flagged": 0.0627,
+    "blocked": 0.009
+  }
 }

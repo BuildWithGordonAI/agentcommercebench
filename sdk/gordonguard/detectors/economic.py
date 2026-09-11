@@ -101,14 +101,38 @@ class EconomicDetector:
     name = "economic"
 
     def __init__(self, reference: Optional[PriceReference] = None,
-                 catalogue_tolerance: float = 1.10,
-                 peer_tolerance: float = 1.25):
+                 catalogue_tolerance: Optional[float] = None,
+                 peer_tolerance: Optional[float] = None,
+                 catalogue_block: Optional[float] = None,
+                 peer_block: Optional[float] = None,
+                 quote_tolerance: Optional[float] = None):
         self.reference = reference or PriceReference()
         self.catalogue_tolerance = catalogue_tolerance
-        """How far above the listed price is ordinary. Tight, because a listed price is a
-        published commitment rather than an estimate."""
         self.peer_tolerance = peer_tolerance
-        """How far above what peers pay is ordinary. Looser — genuine variation exists."""
+        """
+        Where review starts. Fitted to a flag budget, and `None` until it has been.
+
+        There is no sensible default. The previous ones — 1.10 against the catalogue, 1.25
+        against peers — were guesses, and they were guesses that happened to sit inside the
+        margins the benchmark's own overcharge classes draw from. A check that has not been
+        calibrated stays silent instead of guessing; silence is a known quantity and a
+        borrowed constant is not.
+        """
+        self.catalogue_block = catalogue_block
+        self.peer_block = peer_block
+        self.quote_tolerance = quote_tolerance
+        """How far above the quoted price is still ordinary. Fitted like the rest: honest
+        merchants quote in the 402 challenge and then charge close to it, but not exactly it,
+        so this has a real distribution to sit inside rather than a gap."""
+        """
+        Where refusal starts, and a separate statistic on purpose.
+
+        Prices genuinely rise. A single tolerance used for both review and refusal blocks the
+        legitimate tail — with one threshold at the 90th percentile of clean price ratios,
+        22% of honest sessions were refused. Review is cheap and refusal is not, so they are
+        fitted to different budgets: the same soft-limit-and-ceiling split the amount checks
+        already use.
+        """
 
     def score(self, action: Action, ctx: Context) -> tuple[float, list[str]]:
         if action.action_type not in _PAY or not action.amount_units:
@@ -126,24 +150,30 @@ class EconomicDetector:
         # 1. Against the listed price. Catches an overcharge and a padded fee alike — from the
         #    payment's point of view a fee that buys nothing and a price that is too high are
         #    the same event.
-        listed = reference.catalogue.get(service)
+        listed = reference.catalogue.get(service) if self.catalogue_tolerance else None
         if listed:
             ratio = amount / listed
-            if ratio > self.catalogue_tolerance:
-                risk = max(risk, 0.55 if ratio < 1.5 else 0.75)
+            if self.catalogue_block and ratio > self.catalogue_block:
+                risk = max(risk, 0.75)
+                flags.append(f"above_listed_{ratio:.2f}x")
+            elif ratio > self.catalogue_tolerance:
+                risk = max(risk, 0.55)
                 flags.append(f"above_listed_{ratio:.2f}x")
 
         # 2. Against what other agents pay. The only check that sees price discrimination,
         #    because a discriminated price is by definition this agent's normal.
-        peer = reference.peer_median(service)
+        peer = reference.peer_median(service) if self.peer_tolerance else None
         if peer:
             ratio = amount / peer
-            if ratio > self.peer_tolerance:
-                risk = max(risk, 0.60 if ratio < 1.6 else 0.80)
+            if self.peer_block and ratio > self.peer_block:
+                risk = max(risk, 0.80)
+                flags.append(f"above_peers_{ratio:.2f}x")
+            elif ratio > self.peer_tolerance:
+                risk = max(risk, 0.60)
                 flags.append(f"above_peers_{ratio:.2f}x")
 
         # 3. Against the service's own price history, which moves independently of any buyer.
-        historical = reference.historical_median(service)
+        historical = reference.historical_median(service) if self.peer_tolerance else None
         if historical:
             ratio = amount / historical
             if ratio > self.peer_tolerance:
@@ -159,7 +189,7 @@ class EconomicDetector:
                         and prior.amount_units):
                     quoted = prior.amount_units
                     break
-        if quoted and amount > quoted * 1.15:
+        if self.quote_tolerance and quoted and amount > quoted * self.quote_tolerance:
             risk = max(risk, 0.65)
             flags.append(f"above_opening_quote_{amount / quoted:.2f}x")
 

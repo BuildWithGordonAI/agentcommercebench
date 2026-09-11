@@ -12,6 +12,8 @@ in-process decision path.
 """
 from __future__ import annotations
 
+import statistics
+
 from ..schema import ActionType, Action
 from .base import Context
 
@@ -26,9 +28,30 @@ class RegistryDetector:
         flags: list[str] = []
 
         # Replay: this key already settled in this run.
+        #
+        # But a *correctly keyed retry* also reuses its key, and that is the entire purpose of
+        # an idempotency key — the server returns the cached result instead of charging again.
+        # Treating every reuse as replay punishes the agents that implement idempotency
+        # properly: it blocked 294 of 312 clean sessions here, and the agents it blocked were
+        # the well-behaved ones.
+        #
+        # Replay is reuse of a key for a *different* request. A retry repeats the same request
+        # fingerprint, which production records on every settlement.
         if action.idempotency_key and action.idempotency_key in ctx.settled_keys:
-            risk = max(risk, 0.95)
-            flags.append("idempotency_replay")
+            prior = next(
+                (a for a in ctx.history
+                 if a.idempotency_key == action.idempotency_key
+                 and a.request_fingerprint),
+                None,
+            )
+            same_request = (
+                prior is not None
+                and action.request_fingerprint is not None
+                and prior.request_fingerprint == action.request_fingerprint
+            )
+            if not same_request:
+                risk = max(risk, 0.95)
+                flags.append("idempotency_replay")
 
         # Impersonation: the agent id moved mid-session.
         session_agent = ctx.session.agent_id if ctx.session else None
@@ -48,13 +71,25 @@ class RegistryDetector:
                 flags.append("circular_chain_declared")
 
             # Sybil: a counterparty warmed up on dust, then paid at scale.
+            #
+            # Expressed as a ratio against that counterparty's OWN prior payments, never as
+            # an absolute figure. "Dust is under $0.05 and a payout is over $1.00" is a pair
+            # of numbers nobody can justify: $1.00 is a routine purchase for some agents here
+            # and a month of spend for others, and both figures also appear in the generator.
+            # A relative rule needs no such constant and means the same thing at every scale.
             to_vendor = [
-                a for a in ctx.history if a.vendor == action.vendor and a.amount_units
+                a.amount_units for a in ctx.history
+                if a.vendor == action.vendor and a.amount_units
             ]
             if len(to_vendor) >= 4 and action.amount_units:
-                dust = [a for a in to_vendor if a.amount_units <= 50_000]
-                if len(dust) >= 4 and action.amount_units >= 1_000_000:
+                warmup = statistics.median(to_vendor)
+                spread = max(to_vendor) / min(to_vendor)
+                # A warm-up is small AND consistent: several payments of similar size, then
+                # one far larger. A counterparty already transacting across a wide range has
+                # no warm-up to speak of, and a big payment there is just a big payment.
+                if spread <= 4 and action.amount_units >= warmup * 20:
                     risk = max(risk, 0.75)
-                    flags.append("sybil_warmup_then_payout")
+                    flags.append(
+                        f"sybil_warmup_then_payout:{action.amount_units / warmup:.0f}x")
 
         return risk, flags

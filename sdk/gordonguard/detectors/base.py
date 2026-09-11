@@ -47,12 +47,21 @@ class Verdict:
     risk_score: float
     flags: list[str]
     layer_scores: dict[str, float]
+    escalate_at: float = ESCALATE_AT
+    block_at: float = BLOCK_AT
+    """
+    Thresholds carried on the verdict so a pipeline can be calibrated as a whole.
+
+    Fitting each detector to a 10% false-positive budget does NOT give a 10% pipeline: seven
+    detectors firing independently at 10% compounded to 47% here. The budget is a property of
+    the decision, so it has to be fitted on the aggregate score.
+    """
 
     @property
     def decision(self) -> Decision:
-        if self.risk_score >= BLOCK_AT:
+        if self.risk_score >= self.block_at:
             return Decision.BLOCK
-        if self.risk_score >= ESCALATE_AT:
+        if self.risk_score >= self.escalate_at:
             return Decision.ESCALATE
         return Decision.ALLOW
 
@@ -73,7 +82,10 @@ class Verdict:
 class Pipeline:
     """Runs detectors over an action and takes the strictest verdict."""
 
-    def __init__(self, detectors: list[Detector]):
+    def __init__(self, detectors: list[Detector],
+                 escalate_at: float = ESCALATE_AT, block_at: float = BLOCK_AT):
+        self.escalate_at = escalate_at
+        self.block_at = block_at
         self.detectors = list(detectors)
 
     def score(self, action: Action, ctx: Optional[Context] = None) -> Verdict:
@@ -90,7 +102,8 @@ class Pipeline:
             layers[det.name] = risk
             flags.extend(f"{det.name}:{f}" for f in det_flags)
         top = max(layers.values(), default=0.0)
-        return Verdict(risk_score=top, flags=flags, layer_scores=layers)
+        return Verdict(risk_score=top, flags=flags, layer_scores=layers,
+                       escalate_at=self.escalate_at, block_at=self.block_at)
 
     def score_session(self, session: Session) -> list[Verdict]:
         """Score every action, accumulating history and settled keys as we go."""

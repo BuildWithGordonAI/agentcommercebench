@@ -136,5 +136,20 @@
     3.0
   ],
   "attack_rate": 0.25,
+  "settlement_failure_rate": 0.203,
+  "retry_after_failure_rate": 0.7,
+  "retry_reuses_idempotency_key": 0.35,
+  "session_span_seconds": [
+    20,
+    900
+  ],
+  "authorize_to_settle_seconds": [
+    0.4,
+    6.0
+  ],
+  "inter_session_hours": [
+    0.5,
+    72.0
+  ],
   "notes": ""
 }
