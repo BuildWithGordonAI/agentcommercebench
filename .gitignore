@@ -21,6 +21,10 @@ harness/detect/
 harness/trace/
 benchmark/detectors/
 tests/
+# The proprietary suite at the repo root only. The unanchored pattern above also caught
+# sdk/tests, which is the OSS package's own suite and has to ship with it — a test suite
+# nobody can run is not evidence of anything.
+!sdk/tests/
 game.py
 dashboard.py
 load_env.py
