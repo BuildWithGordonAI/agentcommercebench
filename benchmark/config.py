@@ -426,9 +426,20 @@ class AgentConfig:
         """
         How often this configuration yields to injected tool content.
 
-        Not a detector input and not ground truth — a generation parameter standing in for
-        the fact that prompt hygiene changes outcomes. Terse agents comply most; a guarded
-        agent with no fetch tool still occasionally complies, because no prompt is perfect.
+        **CIRCULAR — do not report any number derived from this as a finding.**
+
+        These figures are invented. The generator complies with probability equal to this
+        value, and `compromised` then records whether it complied. So "agent configuration
+        predicts compromise" is not a measurement, it is this parameter read back out. The
+        earlier claim of 72% compliance for a terse prompt against 6% for a guarded one was
+        exactly that, and it was wrong to report.
+
+        Against real agents the effect has not been observed at all: LangGraph on Haiku, four
+        sessions terse and four guarded against an injecting merchant, complied zero times
+        either way (`benchmark/frameworks.py`). Small n, and it establishes only that we have
+        no evidence — not that prompt hygiene is irrelevant.
+
+        Replace this with a rate measured from real executions before any claim rests on it.
         """
         base = {InstructionStyle.TERSE: 0.55,
                 InstructionStyle.STANDARD: 0.30,
