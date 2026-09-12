@@ -155,10 +155,18 @@ def fidelity(rows: list[dict[str, Any]], prod: Optional[dict[str, Any]],
 
 def session_shape(rows: list[dict[str, Any]], prod_path: Path = ROOT / "survey.json") -> dict:
     """
-    Q1b — session length, which is where synthetic benchmarks usually diverge hardest.
+    Q1b — session length.
 
-    Production sessions are not a tidy 2-11 actions. Reported separately from amounts because
-    the fix is different: amounts are a parameter, session shape is a structural assumption.
+    Read the production side with care, and do not treat it as a distribution. Production has
+    a `sessions` table with **0 rows** and a `session_id` on **5 of 1,068** settlements across
+    3 distinct sessions. The "p90 = 745 actions" that falls out of that is five data points,
+    one of which is a 1,063-action batch job. It says nothing about what a session looks like.
+
+    What it does say is that sessions are **not being recorded** — an instrumentation gap, not
+    a fact about how agents behave. The schema supports sessions; nothing writes them. So the
+    benchmark's session shape cannot be validated against production at all, and the honest
+    response is for detectors not to depend on sessions (see Q7) rather than to copy a shape
+    measured from five rows.
     """
     lengths = [len(r["actions"]) for r in rows if r.get("is_clean")]
     got = quantiles([float(x) for x in lengths], qs=(0.5, 0.9, 1.0))
@@ -567,10 +575,13 @@ def render(r: dict[str, Any]) -> str:
     out += ["", "  Q1b session shape"]
     out.append(f"        benchmark   {shape['benchmark']}")
     if "production" in shape:
-        out.append(f"        production  {shape['production']}")
-        out.append(f"        production session_id null rate: "
-                   f"{shape.get('production_session_id_null_rate')}  "
-                   f"(n_sessions={shape.get('production_n_sessions')})")
+        null_rate = shape.get("production_session_id_null_rate") or 0
+        out += [f"        production  {shape['production']}",
+                f"        NOT A DISTRIBUTION: session_id is set on {(1 - null_rate):.2%} of",
+                f"        settlements ({shape.get('production_n_sessions')} distinct sessions), and the",
+                "        `sessions` table has 0 rows. Sessions are not recorded, so the",
+                "        benchmark's session shape cannot be validated against production.",
+                "        Q7 covers the consequence: detectors must not depend on them."]
 
     q2 = r["Q2_field_realism"]
     out += ["", f"  Q2  field realism ........................... {verdict(q2)}"]
