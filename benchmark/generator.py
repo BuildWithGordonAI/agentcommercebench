@@ -192,6 +192,8 @@ class AgentProfile:
     purchases_per_session: tuple[int, int]
     registered_payee: str
     endpoint: str
+    domain_floor: int = 1_000
+    """The measured 5th-percentile price for this agent's domain. See `Domain.floor_price_units`."""
     listed: dict = field(default_factory=dict)
     """service_id -> listed price in micro-units.
 
@@ -229,8 +231,13 @@ class AgentProfile:
         """
         if service_id in self.listed:
             return self.listed[service_id]
-        price = max(1, int(math.exp(rng.gauss(math.log(self.policy.typical_amount),
-                                              self.sigma * 0.5))))
+        # Floored at the category's measured 5th-percentile price. Without it the log-normal
+        # produced payments an order of magnitude below anything production charges — the
+        # benchmark's p05 was 253 units against a measured 2,000 — and a detector calibrated
+        # on that tail is calibrated on traffic that does not exist.
+        floor = self.domain_floor
+        price = max(floor, int(math.exp(rng.gauss(math.log(self.policy.typical_amount),
+                                                  self.sigma * 0.5))))
         self.listed[service_id] = price
         return price
 
@@ -299,7 +306,12 @@ def build_catalogue(cfg: GeneratorConfig, rng: random.Random) -> dict[str, dict]
         for i in range(count):
             sid = f"{domain.name}-svc-{i:03d}"
             catalogue[sid] = {
-                "price_units": max(1, int(math.exp(rng.gauss(domain.mu, domain.sigma)))),
+                # Floored at the category's measured p05. The catalogue overrides each
+                # agent's own prices for services it lists, so a floor applied only to the
+                # profiles left the shared catalogue reaching 85 units — a price nothing in
+                # production charges, and the source of the benchmark's 0.13x p05 error.
+                "price_units": max(domain.floor_price_units,
+                                   int(math.exp(rng.gauss(domain.mu, domain.sigma)))),
                 "domain": domain.name,
             }
     return catalogue
@@ -322,6 +334,7 @@ def build_profiles(cfg: GeneratorConfig, rng: random.Random,
             config=AgentConfig.sample(rng),
             categories=(domain.name,),
             sigma=domain.sigma,
+            domain_floor=domain.floor_price_units,
             purchases_per_session=OBSERVED.purchases_per_session,
             registered_payee=f"0x{abs(hash(policy.agent_id)) % (10 ** 38):038x}",
             endpoint=f"https://{policy.domain}-{abs(hash(policy.agent_id)) % 997}.example/api",

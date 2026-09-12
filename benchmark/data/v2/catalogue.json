@@ -20,7 +20,7 @@
     "domain": "ai"
   },
   "ai-svc-005": {
-    "price_units": 596,
+    "price_units": 1000,
     "domain": "ai"
   },
   "ai-svc-006": {
@@ -84,7 +84,7 @@
     "domain": "data"
   },
   "data-svc-004": {
-    "price_units": 85,
+    "price_units": 1000,
     "domain": "data"
   },
   "data-svc-005": {
@@ -116,7 +116,7 @@
     "domain": "data"
   },
   "data-svc-012": {
-    "price_units": 221,
+    "price_units": 1000,
     "domain": "data"
   },
   "search-svc-000": {
@@ -128,7 +128,7 @@
     "domain": "search"
   },
   "search-svc-002": {
-    "price_units": 255,
+    "price_units": 1000,
     "domain": "search"
   },
   "search-svc-003": {
@@ -216,11 +216,11 @@
     "domain": "security"
   },
   "security-svc-005": {
-    "price_units": 932,
+    "price_units": 1000,
     "domain": "security"
   },
   "creative-svc-000": {
-    "price_units": 373,
+    "price_units": 2300,
     "domain": "creative"
   },
   "creative-svc-001": {

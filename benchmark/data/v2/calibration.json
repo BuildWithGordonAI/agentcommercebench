@@ -18,10 +18,10 @@
       "p99": 1.969
     },
     "quote": {
-      "p50": 1.068,
+      "p50": 1.069,
       "p90": 1.502,
       "p95": 1.807,
-      "p99": 2.048
+      "p99": 2.049
     }
   },
   "fitted_on": {
@@ -34,17 +34,17 @@
     "flag": 0.1,
     "block": 0.01
   },
-  "z_escalate": 1.57,
-  "z_block": 2.169,
-  "soft_limit_k": 1.57,
-  "ceiling_k": 2.169,
+  "z_escalate": 1.662,
+  "z_block": 2.334,
+  "soft_limit_k": 1.662,
+  "ceiling_k": 2.334,
   "observed_clean_novelty_rate": 0.0437,
   "clean_z_quantiles": {
-    "p50": 0.708,
-    "p75": 1.16,
-    "p90": 1.57,
-    "p95": 1.753,
-    "p99": 2.169,
+    "p50": 0.723,
+    "p75": 1.242,
+    "p90": 1.662,
+    "p95": 1.876,
+    "p99": 2.334,
     "p100": 2.997
   },
   "note": "Fitted on clean training traffic only. Recall on the test attacks was not an input to this fit and must not become one.",
@@ -52,7 +52,7 @@
   "block_at": 0.95,
   "clean_sessions_scored": 1004,
   "achieved_on_train": {
-    "flagged": 0.0627,
-    "blocked": 0.009
+    "flagged": 0.0647,
+    "blocked": 0.01
   }
 }

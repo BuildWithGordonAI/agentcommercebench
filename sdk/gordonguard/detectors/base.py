@@ -92,15 +92,26 @@ class Pipeline:
         ctx = ctx or Context()
         layers: dict[str, float] = {}
         flags: list[str] = []
+        # Names are keys, so two detectors sharing one would have the second silently
+        # overwrite the first and `max` would never see it. Disambiguating here rather than
+        # forbidding duplicates keeps wrappers and decorators usable, which is how the
+        # collision arises in practice.
+        seen: dict[str, int] = {}
         for det in self.detectors:
+            name = det.name
+            if name in seen:
+                seen[name] += 1
+                name = f"{name}#{seen[name]}"
+            else:
+                seen[name] = 0
             try:
                 risk, det_flags = det.score(action, ctx)
             except Exception as exc:  # a broken detector must not swallow the action
-                layers[det.name] = 0.0
-                flags.append(f"{det.name}:error:{type(exc).__name__}")
+                layers[name] = 0.0
+                flags.append(f"{name}:error:{type(exc).__name__}")
                 continue
-            layers[det.name] = risk
-            flags.extend(f"{det.name}:{f}" for f in det_flags)
+            layers[name] = risk
+            flags.extend(f"{name}:{f}" for f in det_flags)
         top = max(layers.values(), default=0.0)
         return Verdict(risk_score=top, flags=flags, layer_scores=layers,
                        escalate_at=self.escalate_at, block_at=self.block_at)

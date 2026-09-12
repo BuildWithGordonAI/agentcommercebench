@@ -86,6 +86,15 @@ class Domain:
     source: str
     n_operations: int = 0
     """Catalog operations the figures were measured over — the sample size behind them."""
+    floor_price_units: int = 1_000
+    """
+    Measured 5th-percentile price for this category.
+
+    Prices have a floor in production and the generator did not have one, so it produced
+    payments down to 253 units against a measured p05 of 2,000 — a low tail nobody charges.
+    Grounded per category (`grounding.json: category_prices_units[*].p05`) and corroborated by
+    `service_payment_requirements.amount_units` p05 = 1,000 over 1,644 rows.
+    """
     mcc_pool: tuple[str, ...] = ()
     """Retained for card-rail work; the x402 catalog is categorised, not MCC-coded."""
     """
@@ -122,42 +131,42 @@ class Domain:
 # domains occupying different scales.
 DOMAINS: tuple[Domain, ...] = (
     Domain("ai", median_amount_units=5_000, sigma=1.42,
-           n_operations=680,
+           n_operations=680, floor_price_units=1000,
            source="MEASURED 2026-09-08, service_operations: n=680, "
                   "p50=5000 units, p95=52000 units. sigma derived from the "
                   "p95/p50 ratio under a log-normal fit."),
     Domain("data", median_amount_units=5_000, sigma=2.80,
-           n_operations=531,
+           n_operations=531, floor_price_units=1000,
            source="MEASURED 2026-09-08, service_operations: n=531, "
                   "p50=5000 units, p95=500000 units. sigma derived from the "
                   "p95/p50 ratio under a log-normal fit."),
     Domain("search", median_amount_units=10_000, sigma=1.40,
-           n_operations=287,
+           n_operations=287, floor_price_units=1000,
            source="MEASURED 2026-09-08, service_operations: n=287, "
                   "p50=10000 units, p95=100000 units. sigma derived from the "
                   "p95/p50 ratio under a log-normal fit."),
     Domain("finance", median_amount_units=20_000, sigma=1.03,
-           n_operations=64,
+           n_operations=64, floor_price_units=150,
            source="MEASURED 2026-09-08, service_operations: n=64, "
                   "p50=20000 units, p95=108500 units. sigma derived from the "
                   "p95/p50 ratio under a log-normal fit."),
     Domain("infrastructure", median_amount_units=10_000, sigma=2.38,
-           n_operations=46,
+           n_operations=46, floor_price_units=1000,
            source="MEASURED 2026-09-08, service_operations: n=46, "
                   "p50=10000 units, p95=500000 units. sigma derived from the "
                   "p95/p50 ratio under a log-normal fit."),
     Domain("security", median_amount_units=5_000, sigma=2.05,
-           n_operations=19,
+           n_operations=19, floor_price_units=1000,
            source="MEASURED 2026-09-08, service_operations: n=19, "
                   "p50=5000 units, p95=145000 units. sigma derived from the "
                   "p95/p50 ratio under a log-normal fit."),
     Domain("creative", median_amount_units=15_000, sigma=3.36,
-           n_operations=14,
+           n_operations=14, floor_price_units=2300,
            source="MEASURED 2026-09-08, service_operations: n=14, "
                   "p50=15000 units, p95=3786000 units. sigma derived from the "
                   "p95/p50 ratio under a log-normal fit."),
     Domain("scrape", median_amount_units=7_500, sigma=1.05,
-           n_operations=6,
+           n_operations=6, floor_price_units=1250,
            source="MEASURED 2026-09-08, service_operations: n=6, "
                   "p50=7500 units, p95=42500 units. sigma derived from the "
                   "p95/p50 ratio under a log-normal fit."),
