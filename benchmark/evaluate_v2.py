@@ -57,6 +57,21 @@ def load(path: Path) -> list[dict[str, Any]]:
         return [json.loads(line) for line in fh if line.strip()]
 
 
+_ATTACK_SELECTION = """
+    Attack recall is measured on attack sessions that carry NO defect.
+
+    16% of attack sessions also contain a genuine retry-paid-twice loss, because they are
+    built on clean traffic and clean traffic fails 20% of the time. The detector catches the
+    duplicate charge — correctly — and the session is then scored as "attack detected", which
+    it is not: nothing about the attack was seen. The inflation reached +0.24 on a single
+    class, and three classes whose true L1 recall is 0.00 were reporting 0.10-0.24.
+
+    A session containing both an attack and an unrelated loss cannot attribute the detection,
+    so it is excluded rather than guessed at. Those sessions are still scored in the LOSS
+    bucket, where catching them is the win it actually is.
+"""
+
+
 def to_actions(record: dict[str, Any]) -> list[Action]:
     """
     Rebuild Actions with every label stripped — a detector sees only deployable fields.
@@ -361,10 +376,16 @@ def evaluate(data_dir: Path, l0_kind: str = "d8", llm=None,
         base = dict(baselines.get(row["agent_id"], {}))
         f0, b0, fl0 = score(row, l0_pipeline, base)
         f1, b1, fl1 = score(row, l1_pipeline, base)
-        if not row["is_clean"]:
-            bucket = per_class[row["probe_id"]]
-        elif row.get("defects"):
+        # Defects are checked FIRST, and that ordering is the whole point. An attack session
+        # that also carries a real retry-paid-twice loss used to land in its attack class, so
+        # the detector catching the duplicate charge — correctly — scored as "attack detected"
+        # when nothing about the attack was seen. 16% of attack sessions carry one, inflating
+        # per-class recall by up to +0.24 and hiding three classes whose true recall is 0.00.
+        # They belong in LOSS, where catching them is the win it actually is.
+        if row.get("defects"):
             bucket = defect
+        elif not row["is_clean"]:
+            bucket = per_class[row["probe_id"]]
         else:
             bucket = clean
         bucket["n"] += 1

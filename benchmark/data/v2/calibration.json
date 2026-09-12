@@ -38,7 +38,7 @@
   "z_block": 2.293,
   "soft_limit_k": 1.694,
   "ceiling_k": 2.293,
-  "observed_clean_novelty_rate": 0.0412,
+  "observed_clean_novelty_rate": 0.0418,
   "clean_z_quantiles": {
     "p50": 0.705,
     "p75": 1.258,
