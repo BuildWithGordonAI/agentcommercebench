@@ -23,6 +23,7 @@ from .baselines import (
 )
 from .detectors import Context, Pipeline, Verdict, default_pipeline
 from .guard import Blocked, Guard, Mode, NeedsApproval
+from .guard.store import ContextStore, InMemoryContextStore
 from .probes import Probe, all_probes, families, get as get_probe, probe
 from .scan import Finding, Report, scan
 from .sinks import FileSink, MemorySink, MultiSink, NullSink, TraceSink
@@ -52,7 +53,9 @@ __all__ = [
     "ToolSpec",
     "audit",
     "Blocked",
+    "ContextStore",
     "Context",
+    "InMemoryContextStore",
     "Decision",
     "FileSink",
     "Finding",
