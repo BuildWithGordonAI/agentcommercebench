@@ -173,6 +173,17 @@ DOMAINS: tuple[Domain, ...] = (
 )
 
 
+DEFAULT_APPROVAL_FRACTION = 0.40
+"""
+Fallback step-up threshold, as a fraction of the agent's hard limit.
+
+HUMAN, not measured. `agent_enabled_services.require_approval_above_units` exists in
+production and its distribution has not been pulled; until it is, this is the shape card
+issuers use rather than a number derived from anything here. Deliberately not fitted to the
+benchmark: a threshold fitted to the generator is a threshold that measures the generator.
+"""
+
+
 @dataclass(frozen=True)
 class AgentPolicy:
     """
@@ -192,9 +203,46 @@ class AgentPolicy:
     limit_multiple: float
     """limit / typical_amount — how much headroom this owner allowed."""
 
+    approval_above: Optional[float] = None
+    """
+    Where a human is asked, which is not where the payment is refused.
+
+    Real payment systems have two thresholds, not one. A card issuer steps up to 3-D Secure
+    well below the limit that declines the transaction; `agent_enabled_services` carries both
+    `require_approval_above_units` and `max_per_call_units` for exactly this reason. Modelling
+    them as a single number makes every near-limit attack either trivially caught or entirely
+    invisible, because there is nothing between "fine" and "refused".
+
+    Per agent, because the gap between the two is a policy choice its owner made. `None` means
+    this owner set no approval step, which is itself common — the fallback is applied by
+    `approval_threshold`, not stored here, so a declared None stays distinguishable from a
+    defaulted one.
+    """
+
     def is_over_limit(self, amount: float) -> bool:
         """The only definition of overspend in this benchmark. Relative, by construction."""
         return amount > self.limit
+
+    @property
+    def approval_threshold(self) -> float:
+        """
+        What this agent actually steps up at, declared or defaulted.
+
+        The fallback sits at 40% of the hard limit. It is a HUMAN parameter and marked as one:
+        the production distribution of `require_approval_above_units / max_per_call_units` has
+        not been measured yet (`survey_layers.py: l4_approval_vs_limit_ratio` asks for it), and
+        40% is the shape card issuers use — step up while there is still meaningful headroom,
+        so the step-up is a question rather than a formality.
+
+        Replace with the measured ratio when it is available. Nothing else needs to change.
+        """
+        if self.approval_above is not None:
+            return self.approval_above
+        return self.limit * DEFAULT_APPROVAL_FRACTION
+
+    def needs_approval(self, amount: float) -> bool:
+        """Above the step-up threshold but still within the limit: ask, do not refuse."""
+        return self.approval_threshold < amount <= self.limit
 
 
 @dataclass

@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import argparse
 import json
+from datetime import datetime
 import math
 import statistics
 import sys
@@ -57,10 +58,20 @@ def load(path: Path) -> list[dict[str, Any]]:
 
 
 def to_actions(record: dict[str, Any]) -> list[Action]:
-    """Rebuild Actions with every label stripped — a detector sees only deployable fields."""
+    """
+    Rebuild Actions with every label stripped — a detector sees only deployable fields.
+
+    `timestamp` and `rail` are deployable and were being dropped. `Action.timestamp` defaults
+    to the current moment, so every action arrived stamped with the instant the evaluation ran
+    — microseconds apart, in generation order. Every time-dependent check was therefore
+    scored against noise: velocity saw one continuous burst, off-hours saw whatever hour the
+    evaluation happened to run at, and no interval in the data meant anything.
+    """
     out = []
     for a in record["actions"]:
+        at = a.get("timestamp")
         out.append(Action(
+            timestamp=datetime.fromisoformat(at) if at else None,
             action_type=ActionType(a["action_type"]),
             agent_id=a.get("agent_id"),
             session_id=record["session_id"],

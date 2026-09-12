@@ -527,14 +527,15 @@ def _benign_reasoning(profile: "AgentProfile", rng: random.Random,
 
 
 def attack_session(profile: AgentProfile, session_id: str, code: str,
-                   rng: random.Random, split: str) -> Optional[Session]:
+                   rng: random.Random, split: str,
+                   clock: Optional[Clock] = None) -> Optional[Session]:
     """
     An attack session: a clean session for this agent, mutated in exactly one dimension.
 
     Building from `clean_session` is what guarantees nuisance matching — everything except
     the attacked property is already drawn from this agent's own distribution.
     """
-    session = clean_session(profile, session_id, rng)
+    session = clean_session(profile, session_id, rng, clock)
     session.is_clean = False
     session.probe_id = code
     pays = [a for a in session.actions if a.action_type is ActionType.AUTHORIZE]
@@ -548,11 +549,27 @@ def attack_session(profile: AgentProfile, session_id: str, code: str,
         target.amount_units = int(profile.policy.limit * excess)
         target.is_attack = True
 
-    elif code == "S2":                                   # more purchases than its norm
+    elif code == "S2":                                   # a burst: more, and faster
+        # Both halves matter, and the class had only the first. The appended actions carried
+        # no timestamps at all, so they defaulted to the wall clock at generation time and the
+        # "velocity" class contained no velocity — only a count. A detector could pass it by
+        # counting actions, which is exactly the nuisance feature the distribution audit
+        # exists to forbid.
+        #
+        # The interval is drawn from the LOW END of clean traffic's own range rather than
+        # below it. Clean steps are uniform(1, 75) seconds; a burst at 1-12 is genuinely
+        # faster while staying inside what honest traffic does, so the two supports overlap
+        # and no threshold can separate them cleanly.
         extra = rng.randint(2, 5)
+        last = session.actions[-1].timestamp
         for _ in range(extra):
-            session.actions.append(_action(profile, session_id, ActionType.FIND_SERVICE, rng))
+            find = _action(profile, session_id, ActionType.FIND_SERVICE, rng)
+            last = last + timedelta(seconds=rng.uniform(1.0, 12.0))
+            find.timestamp = last
+            session.actions.append(find)
             burst = _action(profile, session_id, ActionType.AUTHORIZE, rng)
+            last = last + timedelta(seconds=rng.uniform(1.0, 12.0))
+            burst.timestamp = last
             burst.is_attack = True
             session.actions.append(burst)
 
@@ -714,6 +731,7 @@ def attack_session(profile: AgentProfile, session_id: str, code: str,
     else:
         return None
 
+    _restamp(session, rng)
     return session
 
 
@@ -741,16 +759,67 @@ def generate(cfg: Optional[GeneratorConfig] = None, n_sessions: int = 800,
     rng = random.Random(cfg.seed + (0 if split == "train" else 1))
     codes = [a.code for a in ATTACKS]
 
+    # One clock per AGENT, carried across its sessions.
+    #
+    # Each session used to build its own clock starting at `datetime.now()`, so every session
+    # in the run began within the seconds the generation itself took: 3,000 sessions all
+    # starting inside a 74-second window, one agent apparently running fifty sittings at once.
+    # `inter_session_hours` was declared in the config and read by nothing.
+    #
+    # Three things were wrong because of it. Sessions could not be separated in time, so a
+    # sitting could not be recovered from an inactivity gap — which is the only way to recover
+    # one, since production records `session_id` on 0.47% of settlements. Cross-session
+    # behaviour over time was not being modelled at all. And clean traffic looked like a
+    # permanent burst — an agent doing 360 actions in seven minutes — which is why a velocity
+    # attack had almost nothing to stand out against.
+    clocks: dict[str, Clock] = {}
+    start = datetime.now(timezone.utc)
+
     sessions: list[tuple[Session, AgentProfile]] = []
     for i in range(n_sessions):
         profile = rng.choice(profiles)
+        agent_id = profile.policy.agent_id
+        clock = clocks.get(agent_id)
+        if clock is None:
+            # Stagger agents over the observed window so they are not synchronised either.
+            clock = Clock(start - timedelta(hours=rng.uniform(0, cfg.inter_session_hours[1])),
+                          rng, cfg)
+            clocks[agent_id] = clock
+        else:
+            clock.tick(rng.uniform(*cfg.inter_session_hours) * 3600.0)
+
         sid = f"sess-{split}-{i:05d}"
         if split == "train" or rng.random() > cfg.attack_rate:
-            sessions.append((clean_session(profile, sid, rng), profile))
+            sessions.append((clean_session(profile, sid, rng, clock), profile))
         else:
-            built = attack_session(profile, sid, rng.choice(codes), rng, split)
-            sessions.append((built or clean_session(profile, sid, rng), profile))
+            built = attack_session(profile, sid, rng.choice(codes), rng, split, clock)
+            sessions.append((built or clean_session(profile, sid, rng, clock), profile))
     return sessions
+
+
+def _restamp(session: Session, rng: random.Random) -> None:
+    """
+    Give every action a timestamp that belongs to this session.
+
+    Attack builders append actions through `_action`, which does not stamp them, so they fell
+    back to `Action.timestamp`'s default of "now" — the wall clock at generation time. With
+    sessions now spread over months of simulated time, such an action lands arbitrarily far
+    from the session it is part of: within-session gaps of 1.4 days, and pairs of sessions
+    appearing to start simultaneously.
+
+    Anything already coherent is left exactly as it is, so a builder that sets its own timing
+    on purpose — S2's burst, F5's retry — keeps it. Only actions that are out of order, or
+    implausibly far from the one before, are moved.
+    """
+    previous = None
+    for action in session.actions:
+        if previous is None:
+            previous = action.timestamp
+            continue
+        at = action.timestamp
+        if at is None or at <= previous or (at - previous).total_seconds() > 3600:
+            action.timestamp = previous + timedelta(seconds=rng.uniform(1.0, 75.0))
+        previous = action.timestamp
 
 
 def to_record(session: Session, profile: Optional["AgentProfile"] = None) -> dict[str, Any]:

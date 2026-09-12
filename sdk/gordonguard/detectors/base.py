@@ -33,6 +33,14 @@ class Context:
     baseline: dict[str, Any] = field(default_factory=dict)
     """Learned or declared norms for this agent: limits, known vendors, hours."""
     settled_keys: set[str] = field(default_factory=set)
+    session_id: Optional[str] = None
+    """
+    The current sitting — asserted by the platform, or derived from an inactivity gap.
+
+    A value beginning `derived:` was inferred from timestamps, not asserted by anything. Use
+    it to group, never to authenticate: a derived boundary is a guess about attention, and the
+    identity question is answered by `principal_id`.
+    """
     principal_id: Optional[str] = None
     """
     The *authenticated* agent — who the caller proved they are, from the API key or token.

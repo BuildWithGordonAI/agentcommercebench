@@ -162,3 +162,66 @@ def test_replay_is_caught_across_what_would_be_two_sessions():
     risk, flags = RegistryDetector().score(second, ctx)
     assert risk >= 0.9
     assert "idempotency_replay" in flags
+
+
+# ── derived sessions ─────────────────────────────────────────────────────
+
+def _at(seconds):
+    from datetime import datetime, timedelta, timezone
+    return datetime(2026, 1, 1, tzinfo=timezone.utc) + timedelta(seconds=seconds)
+
+
+def stamped(agent_id, seconds):
+    action = pay(agent_id)
+    action.session_id = None          # as production delivers it: 99.5% of the time
+    action.timestamp = _at(seconds)
+    return action
+
+
+def test_a_session_is_derived_from_the_inactivity_gap():
+    """
+    We know the agent and we know when it acted, so a sitting is recoverable even though
+    nothing recorded one. Consecutive actions belong together until the agent goes quiet.
+    """
+    store = InMemoryContextStore(session_gap_seconds=1800)
+    ids = [store.session_id_for("a", stamped("a", t))
+           for t in (0, 30, 90, 5_000, 5_030, 60_000)]
+
+    assert ids[0] == ids[1] == ids[2]          # one sitting
+    assert ids[3] == ids[4] != ids[2]          # a gap, so a new one
+    assert ids[5] != ids[4]                    # and another
+    assert len(set(ids)) == 3
+
+
+def test_a_derived_session_is_marked_as_derived():
+    """Nothing downstream may mistake an inferred boundary for an asserted one."""
+    store = InMemoryContextStore()
+    assert store.session_id_for("a", stamped("a", 0)).startswith("derived:")
+
+
+def test_a_real_session_id_is_never_overridden():
+    store = InMemoryContextStore()
+    action = pay("a")
+    action.session_id = "sess-from-the-platform"
+    assert store.session_id_for("a", action) == "sess-from-the-platform"
+
+
+def test_agents_get_independent_session_boundaries():
+    store = InMemoryContextStore(session_gap_seconds=1800)
+    store.session_id_for("a", stamped("a", 0))
+    store.session_id_for("b", stamped("b", 0))
+    # `a` goes quiet and comes back; `b` does not.
+    a_second = store.session_id_for("a", stamped("a", 9_000))
+    b_second = store.session_id_for("b", stamped("b", 60))
+    assert a_second.endswith(":1")
+    assert b_second.endswith(":0")
+
+
+def test_a_missing_timestamp_does_not_start_a_new_session():
+    """Absence of a timestamp is not evidence of a new sitting."""
+    store = InMemoryContextStore()
+    first = store.session_id_for("a", stamped("a", 0))
+    blank = pay("a")
+    blank.session_id = None
+    blank.timestamp = None
+    assert store.session_id_for("a", blank) == first
