@@ -33,6 +33,17 @@ class Context:
     baseline: dict[str, Any] = field(default_factory=dict)
     """Learned or declared norms for this agent: limits, known vendors, hours."""
     settled_keys: set[str] = field(default_factory=set)
+    principal_id: Optional[str] = None
+    """
+    The *authenticated* agent — who the caller proved they are, from the API key or token.
+
+    Distinct from `action.agent_id`, which is only what the request claims. The gap between
+    the two is the impersonation signal, and it is the one thing here that must not be read
+    from a session: `session_id` is populated on 0.47% of production settlements, so a check
+    keyed on `ctx.session.agent_id` fires in a harness and never in deployment. It scored
+    1.00 against the identity-mismatch class here and 0.30 once history was keyed the way
+    production keys it.
+    """
 
 
 @runtime_checkable

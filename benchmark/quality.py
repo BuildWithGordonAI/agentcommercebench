@@ -221,13 +221,79 @@ def field_realism(rows: list[dict[str, Any]],
             "over_available": gap > 0.25,
         })
     return {"ran": True, "fields": findings,
-            "pass": not any(f["over_available"] for f in findings),
+            # Reported, not gated. A field the benchmark has and production lacks only
+            # matters if a detector READS it, and Q7 measures that directly by scoring the
+            # same detectors both ways. Gating here instead would fail forever on a field
+            # nothing depends on.
+            "pass": True,
+            "over_available_fields": [f["field"] for f in findings if f["over_available"]],
             "consequence": (
                 "session_id is present on every generated action and absent from 99.5% of "
                 "production settlements. The benchmark groups history by session; production "
                 "cannot. Any history-level detector must key on agent_id (100% populated) "
                 "and treat a session boundary as unavailable, or it will work here and not "
                 "there.")}
+
+
+# ── Q7. Deployment parity ────────────────────────────────────────────────────
+
+def deployment_parity(data_dir: Path, calibration: dict[str, Any]) -> dict[str, Any]:
+    """
+    Q7 — does the detector score the same when history is keyed the way production keys it?
+
+    The benchmark groups actions into sessions because it created them. Production does not:
+    `session_id` is populated on 0.47% of settlements, `agent_id` on 100%. So a detector is
+    scored twice — once with history reset at each session boundary, once with history keyed
+    on the agent and carried across boundaries in timestamp order — and the two must agree.
+
+    This is not hypothetical. It caught `RegistryDetector` comparing `action.agent_id` against
+    `ctx.session.agent_id`: the identity-mismatch class scored 1.00 with sessions and 0.30
+    without, so the harness was reporting a detector that would have lost 70% of its recall on
+    deployment, silently, with no error anywhere. The fix was to compare against the
+    authenticated principal, which production has and a session is merely a proxy for.
+
+    Any gap here is a detector reading evidence deployment will not give it.
+    """
+    from gordonguard.guard.store import InMemoryContextStore
+
+    train = load(data_dir / "train.jsonl")
+    test = load(data_dir / "test.jsonl")
+    baselines = fit_baselines(train)
+    apply_limits(baselines, calibration)
+    reference = build_price_reference(train, data_dir)
+
+    def measure(store):
+        pipeline = l1(calibration, reference)
+        rows = sorted(test, key=lambda r: r["actions"][0].get("timestamp") or "")
+        per: dict[str, list[bool]] = defaultdict(list)
+        clean: list[bool] = []
+        for r in rows:
+            flagged = score(r, pipeline, baselines.get(r["agent_id"], {}), store=store)[0]
+            if r.get("is_clean") and not r.get("defects"):
+                clean.append(flagged)
+            elif r.get("probe_id"):
+                per[r["probe_id"]].append(flagged)
+        return ({k: sum(v) / len(v) for k, v in per.items()},
+                sum(clean) / max(1, len(clean)))
+
+    sess, sess_clean = measure(None)
+    agent, agent_clean = measure(InMemoryContextStore())
+
+    deltas = [{"class": k, "session_keyed": round(sess[k], 3),
+               "agent_keyed": round(agent.get(k, 0.0), 3),
+               "delta": round(agent.get(k, 0.0) - sess[k], 3)}
+              for k in sorted(sess)]
+    worst = max((abs(d["delta"]) for d in deltas), default=0.0)
+    return {
+        "per_class": deltas,
+        "clean": {"session_keyed": round(sess_clean, 3),
+                  "agent_keyed": round(agent_clean, 3),
+                  "delta": round(agent_clean - sess_clean, 3)},
+        "worst_delta": round(worst, 3),
+        "regressed": [d["class"] for d in deltas if d["delta"] <= -0.05],
+        # Small movement is sampling; a class losing 5 points is reading a session.
+        "pass": worst < 0.05,
+    }
 
 
 # ── Q3. Saturation ───────────────────────────────────────────────────────────
@@ -444,6 +510,7 @@ def run(data_dir: Path) -> dict[str, Any]:
         "Q4_discrimination": discrimination(data_dir, calibration),
         "Q5_power": power(counts),
         "Q6_label_integrity": label_integrity(test, baselines),
+        "Q7_deployment_parity": deployment_parity(data_dir, calibration),
         "clean_flag_rate": round(clean_rate, 4),
     }
 
@@ -546,6 +613,20 @@ def render(r: dict[str, Any]) -> str:
     out += ["", f"  Q6  label integrity ......................... {verdict(q6)}",
             f"        {q6['clean_over_declared_limit']}/{q6['clean_sessions']} clean sessions "
             f"exceed their own declared limit ({q6['rate']:.1%})"]
+
+    q7 = r["Q7_deployment_parity"]
+    out += ["", f"  Q7  deployment parity ....................... {verdict(q7)}",
+            "        the same detectors scored twice: history reset per session (harness),",
+            "        and keyed on agent across sessions (production, where session_id is on",
+            "        0.47% of settlements and agent_id on 100%)",
+            f"        worst per-class delta {q7['worst_delta']:+.3f}   "
+            f"clean {q7['clean']['delta']:+.3f}"]
+    if q7["regressed"]:
+        out.append(f"        REGRESSED without sessions: {', '.join(q7['regressed'])}")
+        for d in q7["per_class"]:
+            if d["delta"] <= -0.05:
+                out.append(f"          {d['class']}  {d['session_keyed']:.2f} -> "
+                           f"{d['agent_keyed']:.2f}")
 
     failed = [k for k, v in r.items()
               if isinstance(v, dict) and v.get("ran", True) and v.get("pass") is False]

@@ -21,6 +21,7 @@ from typing import Any, Callable, Optional
 
 from ..detectors import Context, Pipeline, Verdict, default_pipeline
 from ..schema import Action, Decision
+from .store import ContextStore, InMemoryContextStore
 
 
 class Mode(str, Enum):
@@ -88,6 +89,7 @@ class Guard:
         sink: Optional[Any] = None,
         baseline_provider: Optional[Any] = None,
         agent_id: str = "agent",
+        store: Optional[ContextStore] = None,
     ):
         from ..sinks import FileSink, MultiSink, NullSink
 
@@ -113,7 +115,10 @@ class Guard:
 
         self.on_escalate = on_escalate
         self.trace: list[TraceRecord] = []
-        self._ctx = Context(baseline=self.baseline)
+        # History is kept per agent, not per guard, because one guard serves a fleet and
+        # because production has no session to key on: `session_id` is populated on 0.47% of
+        # settlements. `agent_id` is populated on 100%.
+        self.store = store or InMemoryContextStore()
         self._lock = threading.Lock()
 
     def refresh_baseline(self) -> dict:
@@ -121,8 +126,6 @@ class Guard:
         if self.baseline_provider is None:
             return self.baseline
         self.baseline = self.baseline_provider.baseline_for(self.agent_id) or {}
-        with self._lock:
-            self._ctx.baseline = self.baseline
         return self.baseline
 
     def flush(self) -> None:
@@ -131,13 +134,25 @@ class Guard:
         except Exception:
             pass
 
+    def baseline_for(self, agent_id: str) -> dict:
+        """Norms for one agent. Falls back to this guard's own when no provider is set."""
+        if self.baseline_provider is None:
+            return self.baseline
+        return self.baseline_provider.baseline_for(agent_id) or {}
+
     def check(self, action: Action) -> Verdict:
-        """Score an action, record it, and apply the mode's policy."""
+        """
+        Score an action, record it, and apply the mode's policy.
+
+        The action's own `agent_id` selects whose history it is scored against, so a single
+        guard can serve every agent on the process. An action with no agent id falls back to
+        the guard's configured one, which is the single-agent case.
+        """
+        agent_id = action.agent_id or self.agent_id
         with self._lock:
-            verdict = self.pipeline.score(action, self._ctx)
-            self._ctx.history.append(action)
-            if action.idempotency_key:
-                self._ctx.settled_keys.add(action.idempotency_key)
+            ctx = self.store.context(agent_id, self.baseline_for(agent_id))
+            verdict = self.pipeline.score(action, ctx)
+            self.store.record(agent_id, action)
             record = TraceRecord(action=action, verdict=verdict, at=datetime.now(timezone.utc))
             self.trace.append(record)
             self._write(record)

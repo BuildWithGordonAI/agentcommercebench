@@ -346,6 +346,21 @@ def build_profiles(cfg: GeneratorConfig, rng: random.Random,
 
 # ── Session construction ─────────────────────────────────────────────────────
 
+NETWORKS = ("network-a", "network-b", "network-c")
+"""
+Settlement networks.
+
+Cardinality is MEASURED — `service_settlements.network` has 3 distinct values over 1,068 rows,
+and `service_payment_requirements.network` has 2 over 1,644. The *labels* were not captured by
+the survey, which recorded distinct counts rather than values, so they are placeholders and
+deliberately not plausible-looking chain names: inventing "base" and "base-sepolia" here would
+put an unmeasured claim into the data in a form nobody would question.
+
+Replace with the real labels when the survey is re-run; nothing downstream reads them as
+anything but opaque keys.
+"""
+
+
 def _settle(action: Action, clock: Clock, cfg: "GeneratorConfig",
             rng: random.Random) -> dict[str, Any]:
     """
@@ -359,8 +374,17 @@ def _settle(action: Action, clock: Clock, cfg: "GeneratorConfig",
     return {
         "authorized_at": authorized_at.isoformat(),
         "settled_at": None if failed else (authorized_at + clock.settle_after()).isoformat(),
+        # 100% populated in production (service_settlements.receipt_status).
         "receipt_status": "failed" if failed else "confirmed",
+        # Absent exactly when settlement failed. Production carries tx_hash on 79.59% of
+        # settlements and fails 20.30% of them — 0.7959 + 0.2030 = 0.9989, so the two are the
+        # same event to within a rounding of the sample.
         "tx_hash": None if failed else f"0x{rng.randrange(16 ** 40):040x}",
+        # Both 100% populated in production. Included so an L2 detector has the fields it
+        # would actually receive; a rail-level check keyed on a field the harness omits
+        # cannot be written against this benchmark at all.
+        "protocol": "x402",
+        "network": rng.choice(NETWORKS),
     }
 
 

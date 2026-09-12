@@ -1,58 +1,58 @@
 {
-  "catalogue_tolerance": 1.487,
-  "peer_tolerance": 1.431,
-  "catalogue_block": 2.04,
-  "peer_block": 1.969,
-  "quote_tolerance": 1.502,
+  "catalogue_tolerance": 1.491,
+  "peer_tolerance": 1.432,
+  "catalogue_block": 2.07,
+  "peer_block": 1.99,
+  "quote_tolerance": 1.549,
   "price_ratio_quantiles": {
     "catalogue": {
-      "p50": 1.068,
-      "p90": 1.487,
-      "p95": 1.778,
-      "p99": 2.04
+      "p50": 1.069,
+      "p90": 1.491,
+      "p95": 1.872,
+      "p99": 2.07
     },
     "peers": {
-      "p50": 1.029,
-      "p90": 1.431,
-      "p95": 1.726,
-      "p99": 1.969
+      "p50": 1.03,
+      "p90": 1.432,
+      "p95": 1.795,
+      "p99": 1.99
     },
     "quote": {
-      "p50": 1.069,
-      "p90": 1.502,
-      "p95": 1.807,
-      "p99": 2.049
+      "p50": 1.07,
+      "p90": 1.549,
+      "p95": 1.893,
+      "p99": 2.079
     }
   },
   "fitted_on": {
     "sessions": 1200,
     "agents": 60,
     "clean_sessions": 1200,
-    "clean_payments": 3417
+    "clean_payments": 3476
   },
   "budget": {
     "flag": 0.1,
     "block": 0.01
   },
-  "z_escalate": 1.662,
-  "z_block": 2.334,
-  "soft_limit_k": 1.662,
-  "ceiling_k": 2.334,
+  "z_escalate": 1.663,
+  "z_block": 2.297,
+  "soft_limit_k": 1.663,
+  "ceiling_k": 2.297,
   "observed_clean_novelty_rate": 0.0437,
   "clean_z_quantiles": {
-    "p50": 0.723,
-    "p75": 1.242,
-    "p90": 1.662,
-    "p95": 1.876,
-    "p99": 2.334,
-    "p100": 2.997
+    "p50": 0.689,
+    "p75": 1.246,
+    "p90": 1.663,
+    "p95": 1.911,
+    "p99": 2.297,
+    "p100": 2.938
   },
   "note": "Fitted on clean training traffic only. Recall on the test attacks was not an input to this fit and must not become one.",
   "escalate_at": 0.7,
   "block_at": 0.95,
-  "clean_sessions_scored": 1004,
+  "clean_sessions_scored": 977,
   "achieved_on_train": {
-    "flagged": 0.0647,
-    "blocked": 0.01
+    "flagged": 0.0737,
+    "blocked": 0.0072
   }
 }

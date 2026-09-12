@@ -53,8 +53,12 @@ class RegistryDetector:
                 risk = max(risk, 0.95)
                 flags.append("idempotency_replay")
 
-        # Impersonation: the agent id moved mid-session.
-        session_agent = ctx.session.agent_id if ctx.session else None
+        # Impersonation: the request claims an agent the caller did not authenticate as.
+        #
+        # Against the authenticated principal where one is supplied, and only then against the
+        # session. A session is a harness convenience; the principal is what an API key
+        # actually proves, and it is available on every production settlement.
+        session_agent = ctx.principal_id or (ctx.session.agent_id if ctx.session else None)
         if session_agent and action.agent_id != session_agent:
             risk = max(risk, 0.85)
             flags.append(f"agent_id_mismatch:{action.agent_id}")

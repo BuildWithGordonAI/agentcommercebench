@@ -280,9 +280,32 @@ def apply_limits(baselines: dict[str, dict[str, Any]],
 
 
 def score(record: dict[str, Any], pipeline: Pipeline,
-          baseline: dict[str, Any]) -> tuple[bool, bool, list[str]]:
-    """Returns (flagged, blocked, flags) for a whole session."""
+          baseline: dict[str, Any], store: Optional[Any] = None) -> tuple[bool, bool, list[str]]:
+    """
+    Returns (flagged, blocked, flags) for a whole session.
+
+    With a `store`, history is agent-keyed and carries across sessions — which is how a
+    deployed detector sees the world, because production populates `session_id` on 0.47% of
+    settlements and `agent_id` on 100%. Without one, history resets at each session boundary,
+    which is the harness-only view.
+    """
     actions = to_actions(record)
+    if store is not None:
+        agent_id = record["agent_id"]
+        ctx = store.context(agent_id, baseline)
+        flagged = blocked = False
+        flags: list[str] = []
+        for action in actions:
+            verdict = pipeline.score(action, ctx)
+            store.record(agent_id, action)
+            ctx = store.context(agent_id, baseline)
+            flags.extend(verdict.flags)
+            if verdict.decision is Decision.BLOCK:
+                blocked = flagged = True
+            elif verdict.decision is Decision.ESCALATE:
+                flagged = True
+        return flagged, blocked, flags
+
     session = Session(agent_id=record["agent_id"], persona=None,
                       session_id=record["session_id"], actions=actions)
     ctx = Context(session=session, baseline=baseline)
