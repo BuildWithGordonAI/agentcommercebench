@@ -205,30 +205,37 @@ def pipeline_thresholds(train: list[dict[str, Any]], data_dir: Path,
 
     def cut(budget: float, overshoot: float = 1.5) -> tuple[float, float]:
         """
-        The threshold whose clean rate lands closest to the budget.
+        The threshold whose clean rate lands closest to the budget without overshooting it.
 
-        Not a quantile. Risk scores are discrete — a handful of values, each shared by many
-        sessions — and the pipeline decides with `>=`, so the 90th-percentile *value* lets
-        through every session sitting on it and misses the budget badly.
+        Not a quantile. Risk scores are discrete, and the pipeline decides with `>=`, so the
+        90th-percentile *value* lets through every session sitting on it and misses the budget.
 
-        Nor is it the lowest value strictly inside the budget. The distinct values here are
-        far apart: 1.18% of clean sessions sit at 0.95 against a 1% budget, so the strict rule
-        steps up to the next value, where no session of any kind scores — surrendering every
-        block in the system to save 0.18 points of clean traffic. Refusing 1.2% of clean to
-        refuse 9.9% of attacks is an operating point somebody might choose; refusing nothing
-        at all is not one anybody would.
+        Overshoot is permitted in exactly one situation: when every threshold satisfying the
+        budget is above the maximum score, so the strict choice would act on nothing at all.
+        That happens at the block threshold, where 1.18% of clean sessions sat on the top
+        score against a 1% budget and the strict rule surrendered every block in the system to
+        save 0.18 points. It does NOT happen at the flag threshold, where undershooting simply
+        means fewer false positives.
 
-        So a bounded overshoot is allowed, and the rate actually achieved is returned and
-        printed. A budget that is quietly missed is the problem; one that is reported is a
-        deployment decision.
+        Allowing the overshoot unconditionally was a bug, and an expensive one: on one seed it
+        chose a cut with a 14.1% in-sample rate against a 10% budget, because 14.1% was
+        arithmetically "closer" to 10% than the next candidate's 4%. Three independent
+        replications then reported 0.065 / 0.076 / 0.151, and the third silently broke the
+        guarantee the budget is supposed to provide.
         """
         n = len(scores)
         candidates = [(value, sum(1 for x in scores if x >= value) / n)
                       for value in sorted(set(scores))]
+        inside = [(v, r) for v, r in candidates if r <= budget]
+        if inside:
+            # The largest rate that still honours the budget: closest without breaking it.
+            return max(inside, key=lambda vr: vr[1])
+
+        # Nothing satisfies the budget, so the strict answer acts on nothing. Take the
+        # closest candidate within the overshoot bound instead, and report what it achieved.
         allowed = [(v, r) for v, r in candidates if r <= budget * overshoot]
         if not allowed:
             return max(scores) + 0.01, 0.0
-        # Closest to the budget from either side, preferring the lower rate on a tie.
         return min(allowed, key=lambda vr: (abs(vr[1] - budget), vr[1]))
 
     escalate, flag_rate = cut(flag_budget)
