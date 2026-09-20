@@ -15,8 +15,14 @@ classifiers = [
     "Intended Audience :: Developers",
     "License :: OSI Approved :: Apache Software License",
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Topic :: Security",
+    "Topic :: Software Development :: Testing",
 ]
+
 
 # The core is intentionally dependency-free: it must be trivial to drop into an
 # existing agent without dragging in a dependency tree.
@@ -29,6 +35,12 @@ mcp = ["mcp>=1.2"]
 langgraph = ["langgraph>=0.2", "langchain-core>=0.3"]
 dev = ["pytest>=8", "ruff>=0.6"]
 all = ["mcp>=1.2", "langgraph>=0.2", "langchain-core>=0.3"]
+
+# Without these the PyPI page carries no links back to the source or the benchmark.
+[project.urls]
+Homepage = "https://github.com/BuildWithGordonAI/agentcommercebench"
+Repository = "https://github.com/BuildWithGordonAI/agentcommercebench"
+Issues = "https://github.com/BuildWithGordonAI/agentcommercebench/issues"
 
 [project.scripts]
 gordonguard = "gordonguard.cli:main"
