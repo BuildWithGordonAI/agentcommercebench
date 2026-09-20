@@ -3,7 +3,7 @@
 Adversarial testing and runtime guarding for AI agents that spend money.
 
 Point it at an agent or an MCP server, and it tells you which attacks land, which
-your controls stop, and — for the ones that land — whether they were detectable at all.
+your controls stop, and, for the ones that land, whether they were detectable at all.
 
 ```
   gordonguard scan — my-procurement-agent
@@ -42,7 +42,7 @@ gordonguard scan pipeline            # gordonguard's own detectors, scanned hone
 
 ## Scan anything
 
-One protocol — `execute(action) -> Observation` — so a probe never knows what is
+One protocol, `execute(action) -> Observation`, so a probe never knows what is
 behind it. Every target is a URI:
 
 ```bash
@@ -56,8 +56,8 @@ gordonguard scan langgraph:myapp.graphs:checkout
 gordonguard scan module:myagent:handler --json report.json
 ```
 
-`openai:` covers anything speaking that API — together.ai, Groq, Fireworks, vLLM,
-LM Studio, Ollama — via `base_url`.
+`openai:` covers anything speaking that API (together.ai, Groq, Fireworks, vLLM,
+LM Studio, Ollama) via `base_url`.
 
 In Python:
 
@@ -75,7 +75,7 @@ print(report.render())
 ```
 
 **Scanning a model** works differently from scanning a system: the proposed
-transaction is rendered as a prompt — including whatever the probe planted — and the
+transaction is rendered as a prompt, including whatever the probe planted, and the
 model is asked to ALLOW, BLOCK, or ESCALATE. If injected text talks it into ALLOW,
 the injection worked.
 
@@ -84,7 +84,7 @@ the injection worked.
 ## Scan an agent, not just a session
 
 The targets above receive a decision the agent already made. That tests a control. An
-agent is a *configuration* — a model, a system prompt, tools, a task — and given those
+agent is a *configuration*: a model, a system prompt, tools, a task. Given those
 you can run the loop and watch what it decides:
 
 ```python
@@ -100,12 +100,12 @@ print(scan(AgentTarget(spec)).render())
 ```
 
 Two things follow from running the agent rather than replaying it. Probes can attack the
-*configuration* — a poisoned tool description is untrusted text that reaches the model
-with the authority of a system message, which is what A7 does — and the agent's reasoning
+*configuration*, since a poisoned tool description is untrusted text reaching the model
+with the authority of a system message, which is what A7 does. The agent's reasoning
 becomes visible, which is the only way the reasoning detector has anything to score.
 
 Every verdict is relative to a clean reference run. An attack landed when the agent spent
-*more* than it does untouched, or paid someone the clean run never paid — otherwise an
+*more* than it does untouched, or paid someone the clean run never paid. Otherwise an
 agent doing its job would grade F.
 
 ### Audit the config without running anything
@@ -117,7 +117,7 @@ gordonguard audit agent.json --fail-over 20
 ```
 
 `agent.json` can be the SDK's own shape or a raw MCP `tools/list` dump. Ten checks across
-three groups — what the prompt establishes (spend ceiling, precedence over tool output, an
+three groups. What the prompt establishes (spend ceiling, precedence over tool output, an
 approval boundary), what the tools permit (unbounded amounts, free destinations,
 non-idempotent charges, a fetch tool sharing context with a paying one), and instruction
 text already sitting in a description, which is tool poisoning found at rest.
@@ -148,7 +148,7 @@ so what you are testing is your controls, not your happy path.
 | **settlement** | C1–C2, D1–D2 | identity, replay, circular value | durable registries |
 
 The families are ordered by difficulty on purpose. Injection carries a text signal, so
-any payload scanner should catch it — a stack that fails this family fails everything.
+any payload scanner should catch it, and a stack that fails this family fails everything.
 Behavioral attacks contain no adversarial text at all: every action is well-formed and
 in-policy, and only the shape of the sequence gives them away. Settlement attacks need
 state the action does not carry, so no amount of inspecting the current request will
@@ -156,7 +156,7 @@ find them.
 
 ## Two numbers, kept apart
 
-**Exposure** is what your target let through — severity-weighted, so a settlement
+**Exposure** is what your target let through, severity-weighted, so a settlement
 attack landing costs more than an injection landing.
 
 **Coverage** is what gordonguard's own detectors flagged on the same input. It answers
@@ -190,7 +190,7 @@ def authorize(action):
 ```
 
 **Observe** scores and records without ever interfering. It is the default because it
-is the only mode that is safe before you have a baseline — and the traces it writes are
+is the only mode that is safe before you have a baseline, and the traces it writes are
 what a baseline is derived from.
 
 **Enforce** raises `Blocked` on a block, and routes escalations to `on_escalate`:
@@ -200,7 +200,7 @@ guard = Guard(mode="enforce", on_escalate=lambda action, verdict: ask_a_human(ac
 ```
 
 Detection quality depends on the baseline. Without one, the behavioral layer falls
-back to weak structural signals — the cold-start position, which is real and
+back to weak structural signals. That is the cold-start position, which is real and
 unavoidable on day one.
 
 ## Where traces go, where norms come from
@@ -215,7 +215,7 @@ class BaselineProvider(Protocol):  # where norms come from
     def baseline_for(self, agent_id: str) -> dict: ...
 ```
 
-Ships with `FileSink`, `MemorySink`, `MultiSink`, `NullSink` — all local. Every sink
+Ships with `FileSink`, `MemorySink`, `MultiSink`, `NullSink`, all local. Every sink
 **fails open** by contract: telemetry that can take down the agent it observes is
 worse than no telemetry.
 
@@ -224,7 +224,7 @@ Norms come from `StaticBaseline` (declared by hand, works on day one),
 
 ### Instrument, then learn, then enforce
 
-That order is a technical dependency, not advice — you cannot fit a per-agent
+That order is a technical dependency rather than advice: you cannot fit a per-agent
 baseline before you have that agent's traffic.
 
 ```bash
@@ -241,14 +241,14 @@ guard = Guard(mode="enforce", baseline=json.load(open("baselines.json"))["agent-
 ```
 
 **Two limits, and the difference matters.** `LearnedBaseline` emits a `soft_limit`
-at mean+1.1σ of log-amount — roughly the 86th percentile, so a meaningful slice of
+at mean+1.1σ of log-amount, roughly the 86th percentile, so a meaningful slice of
 perfectly ordinary traffic exceeds it. That is correct for *escalation* and would be
 a disaster as a hard block. The hard `ceiling` sits far above anything observed.
 Hard-blocking legitimate traffic is the expensive error; escalating it costs a review.
 
 ### Hosted backend (optional)
 
-`GordonSink` and `GordonBaselines` ship as one implementation of those interfaces —
+`GordonSink` and `GordonBaselines` ship as one implementation of those interfaces,
 not a dependency. Nothing in the core imports them, and none of the above needs an
 account.
 
@@ -258,7 +258,7 @@ guard = Guard(sink=GordonSink(agent_key="gak_pub_...:gak_sec_..."))
 ```
 
 Only **derived features** leave the machine: amounts, identifiers, timestamps,
-detector flags. Raw payload text is reduced to a SHA-256 digest — enough to notice
+detector flags. Raw payload text is reduced to a SHA-256 digest, enough to notice
 the same payload twice, not enough to reconstruct it. Sending payloads is possible
 but requires `send_payloads=True`. Outbound only; TLS enforced; batched and silent
 on failure.
@@ -281,7 +281,7 @@ def x1(session, rng):
     return session
 ```
 
-Custom detector — anything with a `name` and a `score`:
+Custom detector, anything with a `name` and a `score`:
 
 ```python
 class MyDetector:
