@@ -37,7 +37,11 @@ from typing import Any, Callable, Optional
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "sdk"))
 
-from benchmark.synthetic import generate
+# `benchmark.synthetic` is the retired v1 generator and reaches into the proprietary
+# pipeline, so importing it at module scope made this script unrunnable from a clean
+# checkout — the second command in the reproducibility section died on ModuleNotFoundError.
+# The --v2 path reads sessions from a file and needs none of it, so the import is deferred
+# to the one branch that does.
 
 # Which features each attack is legitimately about. Read from `benchmark.config.ATTACKS`
 # rather than duplicated here: the duplicate drifted the moment new classes were added, and
@@ -173,8 +177,11 @@ def load_v2(path: str) -> list:
 
 def audit(n_clean: int = 400, n_per_attack: int = 60, seed: int = 42,
           v2_path: Optional[str] = None) -> dict[str, Any]:
-    data = load_v2(v2_path) if v2_path else generate(
-        n_clean=n_clean, n_per_attack=n_per_attack, seed=seed)
+    if v2_path:
+        data = load_v2(v2_path)
+    else:
+        from benchmark.synthetic import generate          # v1 path only
+        data = generate(n_clean=n_clean, n_per_attack=n_per_attack, seed=seed)
     by_class: dict[str, list] = collections.defaultdict(list)
     for s in data:
         by_class[getattr(s, "attack_type", None) or "clean"].append(s)
