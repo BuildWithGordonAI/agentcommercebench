@@ -177,11 +177,12 @@ def load_v2(path: str) -> list:
 
 def audit(n_clean: int = 400, n_per_attack: int = 60, seed: int = 42,
           v2_path: Optional[str] = None) -> dict[str, Any]:
-    if v2_path:
-        data = load_v2(v2_path)
-    else:
-        from benchmark.synthetic import generate          # v1 path only
-        data = generate(n_clean=n_clean, n_per_attack=n_per_attack, seed=seed)
+    if not v2_path:
+        raise SystemExit(
+            "--v2 <test.jsonl> is required. The v1 generator this once fell back to is "
+            "retired and is not part of this distribution."
+        )
+    data = load_v2(v2_path)
     by_class: dict[str, list] = collections.defaultdict(list)
     for s in data:
         by_class[getattr(s, "attack_type", None) or "clean"].append(s)
@@ -273,7 +274,7 @@ def main(argv=None) -> int:
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("--strict", action="store_true",
                    help="exit 1 if any nuisance feature separates a class")
-    p.add_argument("--v2", help="audit a generated v2 split instead of the old generator")
+    p.add_argument("--v2", required=True, help="audit a generated v2 split instead of the old generator")
     args = p.parse_args(argv)
 
     report = audit(args.clean, args.per_attack, args.seed, v2_path=args.v2)

@@ -1,249 +1,147 @@
-# Agentic Commerce Harness (ACH)
+# Agentic Commerce Bench
 
-**Fraud-semantic verification for autonomous payment agents.**
+A benchmark and detector stack for fraud in agent payments: twenty attack classes, an offline
+harness for testing an agent configuration against hostile counterparties, and the validity
+checks needed to trust the numbers.
 
-Existing agent frameworks (LangChain, LangGraph, CrewAI) execute tools — they don't
-know whether a payment is fraudulent. ACH adds the missing layer: a pluggable
-verification protocol that intercepts every consequential action, produces a signed
-Commerce Action Receipt (CAR), and routes it through a tiered confidence cascade
-before settlement.
-
-```
-Agent  →  ConsequentialAction  →  [LocalRules → ML → LLM]  →  CAR (signed)  →  PaymentRail
-```
+The core pipeline runs on the Python standard library. No API key, no network, no account.
 
 ---
 
-## Benchmark Results
+## Why this exists
 
-Evaluated on 520 synthetic sessions (200 clean + 40 × 8 attack classes, seed=42):
+Security tooling for agents asks whether an agent can be made to misbehave. A payment system
+asks whether value left the account improperly. Those questions overlap less than they appear.
 
-| Approach | Framework | F1 | Recall | FPR | B1 | B2 | B5 | B6 | B8 |
-|---|---|---|---|---|---|---|---|---|---|
-| No verification | LangChain | 0.000 | 0.000 | 0.000 | ✗ | ✗ | ✗ | ✗ | ✗ |
-| Schema only | LangGraph | 0.000 | 0.000 | 0.000 | ✗ | ✗ | ✗ | ✗ | ✗ |
-| Rules only | CrewAI-style | 0.689 | 0.525 | 0.000 | ✗ | ✗ | ✓ | ✗ | ✓ |
-| ML only | — | 0.768 | 0.881 | 0.660 | ✓ | ~ | ✓ | ✓ | ~ |
-| **ACP (ours)** | — | **0.780** | **0.906** | 0.670 | ✓ | ~ | ✓ | ✓ | **✓** |
+A counterparty with the correct domain, the correct settlement address and a genuinely
+delivered service can charge 30% above its own listed price. Every identity-keyed check stays
+silent, correctly, because nothing about the identity is wrong. Six of the twenty classes here
+have that shape.
 
-Attack key: B1=cold-start, B2=velocity, B5=replay, B6=prompt injection, B8=spend limit.  
-✓=detected (≥80%), ~=partial (50–79%), ✗=missed (<20%).
-
----
-
-## Install
+## Quickstart
 
 ```bash
-pip install -e .                          # core harness, no ML deps
-pip install -e ".[gordon]"                # + Gordon fraud pipeline (requires API key)
-pip install -e ".[benchmark]"             # + benchmark tools
-pip install -e ".[langgraph]"             # + LangGraph integration
-pip install -e ".[crewai]"                # + CrewAI integration
+git clone https://github.com/BuildWithGordonAI/agentcommercebench
+cd agentcommercebench
+export D=benchmark/data/v2
+
+# 1. generate traffic from production-grounded parameters
+python -m benchmark.generator --train-sessions 1200 --sessions 3000 --seed 42 --out $D
+
+# 2. fail the build if any class is separable by a feature no detector may use
+python -m benchmark.distribution_audit --v2 $D/test.jsonl --strict
+
+# 3. fit thresholds on clean training traffic, to a stated false-positive budget
+python -m benchmark.calibrate --data $D --flag-budget 0.10 --block-budget 0.01
+
+# 4. evaluate on the held-out split
+python -m benchmark.evaluate_v2 --data $D --l0 pattern
 ```
 
----
+A generated pool is committed, so step 4 runs without steps 1 to 3.
 
-## Quick Start
+## What is in the benchmark
 
-### Standalone (no framework)
+Twenty classes in four families, generated per agent from measured production parameters.
 
-```python
-from ach import (
-    ConsequentialAction, ActionType, Reversibility,
-    AgentWallet, SpendLimits, ConsentLevel,
-    SessionContext, LocalRulesVerifier,
-    CommerceActionReceipt,
-)
-from decimal import Decimal
+| family | | what makes it hard |
+|---|---|---|
+| **S1–S6** structural | over-limit, velocity, out-of-domain, payee substitution, idempotency replay, identity mismatch | a protocol or policy violation, fixed in form |
+| **E1–E4** evasive | ratchet, structuring, payee rotation, service laundering | every action is individually in policy; only the pattern shows |
+| **F1–F6** fraud | overcharge, price discrimination, phantom fee, drip pricing, retry farming, silent downgrade | the counterparty is exactly who it claims to be |
+| **A1–A4** agent | injection compliance, evasion planning, intent/action mismatch, poisoned tool description | the surface is the agent, and for A4 its configuration |
 
-wallet  = AgentWallet(
-    wallet_id="wallet-001", agent_id="my-agent", persona="travel",
-    consent_level=ConsentLevel.PRE_APPROVED,
-    limits=SpendLimits(per_transaction=Decimal("3000"), per_day=Decimal("10000"),
-                       allowed_mcc=["4511", "7011"]),
-)
-action  = ConsequentialAction(
-    action_type=ActionType.COMMIT, amount=Decimal("450"), currency="USD",
-    merchant_id="booking.com", merchant_name="Booking.com",
-    merchant_mcc="7011", category="travel",
-)
-context = SessionContext(session_id="sess-001", agent_id="my-agent", persona="travel")
+Three design constraints decide whether those classes measure anything:
 
-verifier = LocalRulesVerifier()
-v        = verifier.verify(action, wallet, context)
-car      = CommerceActionReceipt.build(action, wallet, [v], session_id="sess-001")
+**Limits are relative.** There is no absolute threshold anywhere. Each agent's limit is a
+multiple of its own typical spend, so the same $0.05 payment is over the limit for one agent
+and unremarkable for another.
 
-print(car.final_decision)      # "allow"
-print(car.is_valid())          # True
-print(v.uncertainty)           # epistemic uncertainty estimate
-```
+**Honest prices move.** 14.6% of legitimate purchases exceed 1.15× the quoted price and 4.8%
+exceed 1.45×. The overcharge class draws from a range that overlaps that tail deliberately.
+With disjoint supports a threshold in the empty space between them detects perfectly and
+measures nothing.
 
-### LangGraph Integration
+**Things fail without an adversary.** 20.3% of settlements fail and retries regenerate their
+keys, so money is lost with nobody attacking. Those sessions are scored in a separate bucket,
+because catching them is a win rather than a false positive.
 
-```python
-from ach.integrations.langgraph.node import CommerceCheckNode, route_on_decision
-from ach import LocalRulesVerifier, GordonVerifier
-from langgraph.graph import StateGraph
+## Checking the benchmark itself
 
-verifier = GordonVerifier()   # or LocalRulesVerifier() for dev
-node     = CommerceCheckNode(verifier, wallet)
-
-graph = StateGraph(dict)
-graph.add_node("commerce_check", node)
-graph.add_node("execute_payment", execute_payment_fn)
-graph.add_node("handle_block", handle_block_fn)
-graph.add_conditional_edges("commerce_check", route_on_decision)
-
-# For structural atomicity, compile with interrupt_before:
-app = graph.compile(
-    checkpointer=your_checkpointer,
-    interrupt_before=["execute_payment"],   # structural gate
-)
-```
-
----
-
-## Architecture
-
-```
-ach/
-  actions/
-    base.py           ConsequentialAction, ActionType, Reversibility
-    wallet.py         AgentWallet, SpendLimits, ConsentLevel
-
-  verifiers/
-    base.py           Verifier protocol, Verification (with uncertainty), SessionContext
-    local_rules.py    Deterministic: replay, MCC, velocity, spend limits
-    gordon.py         Behavioral ML: Gordon fraud pipeline bridge
-    uncertainty.py    UncertaintyEstimator, disagreement_uncertainty
-
-  receipts/
-    car.py            CommerceActionReceipt, ProvenanceStep
-    signer.py         HMAC-SHA256 signing
-
-  anchoring/
-    chain.py          Hash-chained CARLog (tamper-evident audit trail)
-    merkle.py         Merkle tree + inclusion proofs for batch anchoring
-
-  ceremony.py         CeremonyRouter: (score, uncertainty) → L0-L3 + AnchoringLevel
-
-  integrations/
-    langgraph/        CommerceCheckNode, route_on_decision
-    crewai/           CommerceCheckTool (BaseTool)
-    mcp/              MCP server wrapper (gordon_check_action tool)
-
-benchmark/
-  synthetic.py        Reproducible session generator (B1-B8 attack taxonomy)
-  acp_baselines.py    NoVerify / SchemaOnly / RulesOnly / MLOnly / ACP
-  run_experiment.py   Full comparison table with calibration + chain integrity
-
-paper/
-  acp_paper_outline.md  Abstract, contributions, experiment design
-```
-
----
-
-## Verifier Protocol
-
-Any system implements the `Verifier` protocol:
-
-```python
-class Verifier(Protocol):
-    verifier_id: str
-    def verify(self, action: ConsequentialAction,
-               wallet: AgentWallet, context: SessionContext) -> Verification: ...
-```
-
-`Verification` now includes calibrated uncertainty:
-
-```python
-@dataclass
-class Verification:
-    verifier_id:    str
-    decision:       str             # "allow" | "flag" | "block"
-    score:          float           # 0–1 point estimate
-    confidence:     float           # 1 - uncertainty
-    uncertainty:    float           # epistemic: model knows it doesn't know
-    score_interval: tuple[float, float]   # 90% CI [low, high]
-    flags:          list[str]
-    metadata:       dict
-
-    @property
-    def should_escalate(self) -> bool:   # route to next cascade tier
-        return self.uncertainty > 0.30 or (score_interval[1] - score_interval[0]) > 0.40
-```
-
----
-
-## Commerce Action Receipt (CAR)
-
-Every consequential action produces one CAR. The CAR is the atomic unit of ACP:
-
-```json
-{
-  "car_id": "car_931f290d",
-  "final_decision": "allow",
-  "score": 0.12,
-  "confidence": 0.94,
-  "uncertainty": 0.06,
-  "score_interval": [0.07, 0.17],
-  "ceremony_level": "L2",
-  "anchoring": {
-    "log_entry": "sha256:a3f...",
-    "prev_hash": "sha256:b7c...",
-    "merkle_root": "sha256:d2e...",
-    "chain_tx": null
-  },
-  "signature": "hmac256:..."
-}
-```
-
-CAR signatures are HMAC-SHA256 over all decision-relevant fields. Tampering is
-detected immediately via `car.is_valid()`. The hash-chained log makes retroactive
-modification of any past entry detectable.
-
----
-
-## Ceremony Tiers
-
-| Level | Trigger | Anchoring | Cost |
-|---|---|---|---|
-| L0 | FIND / QUOTE | None | $0 |
-| L1 | Commit < $50, low uncertainty | Local hash-chain | $0 |
-| L2 | Commit $50–$5000 or uncertainty > 0.25 | Merkle batch | ~$0.0001 |
-| L3 | Commit > $5000 or uncertainty > 0.45 or disagreement | On-chain | ~$0.10 |
-
----
-
-## Run the Benchmark
+A benchmark written by the same people who write the detectors can measure its own answer key.
+Three tools test the instrument rather than the detector, and two of them exit non-zero.
 
 ```bash
-# Quick validation (260 sessions)
-python benchmark/run_experiment.py --n-clean 100 --n-per-attack 20
-
-# Full paper benchmark (520 sessions)
-python benchmark/run_experiment.py --n-clean 200 --n-per-attack 40 --seed 42
-
-# Specific attack classes
-python benchmark/run_experiment.py --attacks B1 B2 B5 B6
+python -m benchmark.distribution_audit --v2 $D/test.jsonl --strict   # nuisance separability
+python benchmark/provenance.py --strict                              # constant provenance
+python -m benchmark.quality --data $D                                # seven validity checks
 ```
 
-Results are saved to `benchmark/results/acp_benchmark.json`.
+The provenance ledger requires every constant that can move a result to declare a source, and
+requires any number appearing on both sides of the generator/detector boundary to be claimed
+by an entry. The quality suite includes a detector ladder: five detectors whose true order is
+known by construction, which the benchmark must recover before a negative result means
+anything.
 
----
+## Comparing detectors honestly
 
-## Paper
+```bash
+python -m benchmark.compare --data $D        # matched budgets, jurisdiction, cost model
+python -m benchmark.l0_baselines --data $D   # keyword list, garak, pattern judge
+```
 
-> ACP: Agentic Commerce Protocol — Verifiable, Uncertainty-Aware Fraud Detection
-> for Autonomous Payment Agents.
-> Target: ICLR 2027 Workshop on Agentic AI Systems / NeurIPS 2026 Workshop on
-> Safe and Trustworthy Agents.
+Recall is a function of the false-positive budget, not a property of a detector. `compare`
+refits the same pipeline across budgets, reports which detectors are on the Pareto frontier
+and which pairs are simply incomparable, and prices the result under a stated cost model.
 
-Full outline: [paper/acp_paper_outline.md](paper/acp_paper_outline.md)
+`compare` also enforces jurisdiction: a reasoning judge scoring 0.00 on a substituted
+settlement address is not weak, it never received the evidence. Those cells report `n/a`
+rather than `0`.
 
----
+## gordonguard
+
+The detector stack and offline harness, installable from source.
+
+```bash
+pip install ./sdk
+```
+
+Three entry points:
+
+```bash
+gordonguard audit agent.json      # ten static checks on a config. No model calls, no spend.
+gordonguard scan unguarded        # probe an agent against an offline replica of the stack
+gordonguard scan pipeline         # the same probes with the detectors in front
+```
+
+Inline:
+
+```python
+from gordonguard import Guard
+
+guard = Guard(mode="observe", trace_path="traces.jsonl")
+verdict = guard.check(action)     # -> risk score, flags, decision
+```
+
+`observe` scores without interfering and writes the traces a baseline is later fitted from.
+History is keyed on `agent_id` and bounded, because production populates `session_id` on 0.47%
+of settlements and `agent_id` on 100%.
+
+The harness replays counterparties that are either impersonating (homoglyph domain, typosquat,
+payee swap) or genuine and overcharging (overcharge, drip pricing, phantom fee, retry farming),
+with no account and no network.
+
+## Dependencies
+
+The core needs nothing. Optional extras enable one path each: `garak` for the garak baseline,
+`boto3` for the LLM judge and live agent runs, `langchain-core` and `langchain-aws` for the
+framework adapters. See `requirements.txt`.
+
+## Not included
+
+The adaptive adversarial harness, which generates attacks against a deployed control rather
+than from a fixed script, is withheld.
 
 ## License
 
-Apache 2.0. The `ach/` package and benchmark infrastructure are open-source.
-Gordon fraud pipeline (`fraud/`) requires a separate API key.
+Apache 2.0.

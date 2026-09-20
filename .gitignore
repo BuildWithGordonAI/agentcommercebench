@@ -95,3 +95,18 @@ paper/
 
 # Local working notes (product, design, method write-ups). Kept on disk, not published here.
 design/
+
+# Internal: not part of the public distribution
+PITCH.md
+DEMO_SCRIPT.md
+TECHNICAL_REPORT.md
+gordon_commerce_harness_design.md
+harness_design.html
+demo.py
+demo/
+demo_ach.py
+demo_agent.py
+demo_cli.py
+pitch_demo.py
+sagemaker_train/
+ach/
