@@ -30,6 +30,9 @@ dashboard.py
 load_env.py
 scripts/
 pyproject.toml
+# The SDK is the distributed package and needs its own manifest, which the unanchored
+# pattern above was swallowing. Without it `pip install ./sdk` fails on a fresh clone.
+!sdk/pyproject.toml
 .env.example
 
 # Duplicate / internal
