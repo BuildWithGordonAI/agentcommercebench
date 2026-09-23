@@ -18,11 +18,26 @@ delivered service can charge 30% above its own listed price. Every identity-keye
 silent, correctly, because nothing about the identity is wrong. Six of the twenty classes here
 have that shape.
 
-## Quickstart
+## Setup
+
+Python 3.10 or later. The benchmark pipeline imports only the standard library, so the
+install below is needed for the detector stack and the CLI, not for the four commands after
+it.
 
 ```bash
 git clone https://github.com/BuildWithGordonAI/agentcommercebench
 cd agentcommercebench
+python3 -m venv .venv && . .venv/bin/activate
+pip install ./sdk
+```
+
+Optional extras enable one path each: `garak` for the garak baseline, `boto3` for the LLM
+judge and live agent runs, `langchain-core` and `langchain-aws` for the framework adapters.
+See `requirements.txt`.
+
+## Quickstart
+
+```bash
 export D=benchmark/data/v2
 
 # 1. generate traffic from production-grounded parameters
@@ -100,19 +115,24 @@ rather than `0`.
 
 ## gordonguard
 
-The detector stack and offline harness, installable from source.
+The detector stack and offline harness. Three entry points, none of which needs an account, a
+network or a model call:
 
 ```bash
-pip install ./sdk
+gordonguard audit examples/agent.json   # ten static checks on a config. No spend.
+gordonguard scan unguarded              # probe an agent against an offline replica of the stack
+gordonguard scan pipeline               # the same probes with the detectors in front
 ```
 
-Three entry points:
+`audit` reads the SDK's own config shape or a raw MCP `tools/list` dump, so the input is
+something a running server already produces. On the bundled example it returns Grade F at
+51/100 with 7 of 10 checks firing: two money-moving tools accept an unbounded amount, three
+expose no idempotency key, and the prompt neither names a ceiling nor marks tool output
+untrusted.
 
-```bash
-gordonguard audit agent.json      # ten static checks on a config. No model calls, no spend.
-gordonguard scan unguarded        # probe an agent against an offline replica of the stack
-gordonguard scan pipeline         # the same probes with the detectors in front
-```
+`scan` reports where the stack is late as well as where it holds. Against the bundled probe
+set, `unguarded` grades F with 18 of 18 probes landing and `pipeline` grades C with 4 of 18,
+of which all four are caught mid-attack after 21 actions have already executed.
 
 Inline:
 
@@ -131,11 +151,32 @@ The harness replays counterparties that are either impersonating (homoglyph doma
 payee swap) or genuine and overcharging (overcharge, drip pricing, phantom fee, retry farming),
 with no account and no network.
 
-## Dependencies
+## Published dataset
 
-The core needs nothing. Optional extras enable one path each: `garak` for the garak baseline,
-`boto3` for the LLM judge and live agent runs, `langchain-core` and `langchain-aws` for the
-framework adapters. See `requirements.txt`.
+A sampled release is on the Hub, so the benchmark can be read without running the generator:
+
+**https://huggingface.co/datasets/dpaul93/agentcommercebench**
+
+Two configs. `benchmark` holds 1,000 sessions, 25 of each of the twenty classes plus 500
+clean, each tagged with the observation surface that can see it at all. `production` holds 30
+de-identified real settled actions: identifiers are HMAC digests under a salt that is never
+written down, timestamps are shifted by one constant so inter-arrival gaps survive and
+calendar dates do not, and one field is dropped outright because its content could not be
+certified.
+
+```python
+import json
+from gordonguard import Guard
+from gordonguard.schema import Action
+
+guard = Guard(mode="observe")
+for line in open("production/actions.jsonl"):
+    row = json.loads(line)
+    print(row["action_id"], guard.check(Action.from_dict(row)).decision)
+```
+
+`Action.from_dict` ignores keys the schema does not define, so the record's `observed` block
+rides along without reaching the detector.
 
 ## Not included
 
