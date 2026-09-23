@@ -8,16 +8,14 @@ from gordonguard.harness import (
     Universe,
     Wallet,
     catalog,
-    malicious_variants,
 )
 from gordonguard.harness.merchants import (
     AdaptiveMerchant,
     HomoglyphMerchant,
-    InjectingMerchant,
     PayeeSwapMerchant,
     TyposquatMerchant,
 )
-from gordonguard.schema import Action, ActionType, Decision
+from gordonguard.schema import Action, ActionType
 
 
 def act(**kw):

@@ -9,10 +9,9 @@ The production facts these pin, so a future change cannot quietly undo them:
   - One guard serves a fleet, so two agents must not see each other's history.
   - State must be bounded, or a long-lived process leaks until it dies.
 """
-import pytest
 
 from gordonguard import Guard
-from gordonguard.detectors import Context, Pipeline
+from gordonguard.detectors import Pipeline
 from gordonguard.guard.store import InMemoryContextStore
 from gordonguard.schema import Action, ActionType
 

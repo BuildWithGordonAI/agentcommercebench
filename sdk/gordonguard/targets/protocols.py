@@ -12,11 +12,10 @@ your counterparty actually implements — `path` and the builders are the seams.
 """
 from __future__ import annotations
 
-import json
 from typing import Any, Callable, Optional
 
-from ..schema import Action, ActionType
-from .http import HTTPTarget, JSONRPCTarget, default_request
+from ..schema import Action
+from .http import HTTPTarget, JSONRPCTarget
 
 
 # ---------------------------------------------------------------- A2A

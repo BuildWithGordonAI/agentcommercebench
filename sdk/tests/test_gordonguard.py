@@ -3,7 +3,7 @@ import pytest
 import gordonguard as gg
 from gordonguard.detectors import Context, default_pipeline
 from gordonguard.probes import all_probes, get
-from gordonguard.schema import Action, ActionType, Decision, Outcome
+from gordonguard.schema import Action, ActionType, Decision
 from gordonguard.targets import CallableTarget, NullTarget, PipelineTarget
 from gordonguard.targets.base import baseline_for, baseline_session
 

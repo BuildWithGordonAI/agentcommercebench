@@ -19,7 +19,7 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Callable, Optional
 
-from ..detectors import Context, Pipeline, Verdict, default_pipeline
+from ..detectors import Pipeline, Verdict, default_pipeline
 from ..schema import Action, Decision
 from .store import ContextStore, InMemoryContextStore
 

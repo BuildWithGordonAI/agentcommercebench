@@ -2,7 +2,6 @@
 import json
 import re
 
-import pytest
 
 from gordonguard.agent import AgentRun, AgentSpec, AgentTarget, ToolSpec
 from gordonguard.config_audit import audit, checks
@@ -169,7 +168,6 @@ def test_skeptical_agent_ignores_the_injection():
 
 def test_target_plants_payload_in_the_tool_description():
     """AgentTarget routes probe payloads through the config, which is how they really arrive."""
-    from gordonguard.probes import get as get_probe
     from gordonguard.scan.runner import scan
 
     target = AgentTarget(spec(model=Scripted(obedient=True)), name="scripted")

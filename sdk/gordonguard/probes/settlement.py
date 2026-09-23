@@ -10,7 +10,7 @@ from __future__ import annotations
 import random
 from datetime import timedelta
 
-from ..schema import Action, ActionType, Session
+from ..schema import ActionType, Session
 from . import probe
 
 _PAY = (ActionType.AUTHORIZE, ActionType.A2A_TRANSFER)

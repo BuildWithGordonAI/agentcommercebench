@@ -115,7 +115,7 @@ def test_every_merchant_attack_is_detected(mode, expected_flag, min_risk):
     silently scores zero, which reads as a defended session rather than a blind spot.
     """
     universe = Universe(Knobs(merchant_mode=mode))
-    result = universe.call_service("exa", "search")
+    universe.call_service("exa", "search")
     assert universe.ledger, f"{mode} produced no ledger entry"
     action = universe.ledger[-1].action
 

@@ -15,7 +15,6 @@ registry the detector scores zero, so it is safe to include in any pipeline.
 """
 from __future__ import annotations
 
-import re
 import unicodedata
 from typing import Any, Optional
 from urllib.parse import urlparse
