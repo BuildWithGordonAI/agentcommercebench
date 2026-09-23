@@ -7,7 +7,7 @@ can be replayed against the platform and vice versa.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, field, asdict, fields
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Optional
@@ -128,6 +128,24 @@ class Action:
         d["action_type"] = self.action_type.value
         d["timestamp"] = self.timestamp.isoformat()
         return d
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> "Action":
+        """Build an Action from a JSON record, ignoring keys this schema does not define.
+
+        Records arriving from a trace file, a rail export or the published dataset carry
+        fields belonging to whoever wrote them. Dropping the unknown ones is deliberate: a
+        loader that raises on an extra column makes every producer's schema change a
+        breaking change for every consumer.
+        """
+        known = {f.name for f in fields(cls)}
+        data = {k: v for k, v in d.items() if k in known}
+        if "action_type" in data:
+            data["action_type"] = ActionType(data["action_type"])
+        ts = data.get("timestamp")
+        if isinstance(ts, str):
+            data["timestamp"] = datetime.fromisoformat(ts)
+        return cls(**data)
 
 
 @dataclass
