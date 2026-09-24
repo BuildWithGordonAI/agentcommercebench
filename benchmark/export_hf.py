@@ -309,7 +309,7 @@ to authorise-then-capture rails such as UCP.
 ```bibtex
 @misc{{acb2026,
   title  = {{Agentic Commerce Bench}},
-  author = {{Paul, Debjyoti and Srivastava, Ankit and Singh, Raj}},
+  author = {{Paul, Debjyoti and Srivastava, Ankit}},
   year   = {{2026}},
   url    = {{https://github.com/BuildWithGordonAI/agentcommercebench}}
 }}
